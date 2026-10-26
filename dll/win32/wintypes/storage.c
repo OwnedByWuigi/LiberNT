@@ -22,6 +22,12 @@
 #include "robuffer.h"
 #include <limits.h>
 
+#define UNICODE_ENCODING_UTF8 ((UnicodeEncoding)0)
+#define UNICODE_ENCODING_UTF16LE ((UnicodeEncoding)1)
+#define UNICODE_ENCODING_UTF16BE ((UnicodeEncoding)2)
+#define BYTE_ORDER_BIG_ENDIAN ((ByteOrder)1)
+#define INPUT_STREAM_OPTIONS_NONE ((InputStreamOptions)0)
+
 WINE_DEFAULT_DEBUG_CHANNEL(wintypes);
 
 /* Synchronous wrapper for async operations returned by IOutputStream async methods.
@@ -318,9 +324,9 @@ static HRESULT data_reader_create(IBuffer *buffer, IInputStream *stream, IDataRe
     impl->IDataReader_iface.lpVtbl = &data_reader_vtbl;
     impl->IClosable_iface.lpVtbl = &data_reader_closable_vtbl;
     impl->ref = 1;
-    impl->unicode_encoding = Utf8;
-    impl->byte_order = BigEndian;
-    impl->input_stream_options = None;
+    impl->unicode_encoding = UNICODE_ENCODING_UTF8;
+    impl->byte_order = BYTE_ORDER_BIG_ENDIAN;
+    impl->input_stream_options = INPUT_STREAM_OPTIONS_NONE;
     if (stream)
     {
         impl->stream = stream;
@@ -363,7 +369,7 @@ static HRESULT data_reader_read_value(struct data_reader *impl, void *value, UIN
         return E_INVALIDARG;
     if (FAILED(hr = data_reader_read_bytes(impl, bytes, size)))
         return hr;
-    if ((impl->byte_order == BigEndian) == host_little_endian && size > 1)
+    if ((impl->byte_order == BYTE_ORDER_BIG_ENDIAN) == host_little_endian && size > 1)
         for (i = 0; i < size; ++i)
             ((BYTE *)value)[i] = bytes[size - i - 1];
     else
@@ -371,7 +377,7 @@ static HRESULT data_reader_read_value(struct data_reader *impl, void *value, UIN
     return S_OK;
 }
 
-static HRESULT data_reader_QueryInterface(IDataReader *iface, REFIID iid, void **out)
+static HRESULT WINAPI data_reader_QueryInterface(IDataReader *iface, REFIID iid, void **out)
 {
     struct data_reader *impl = impl_from_IDataReader(iface);
 
@@ -590,7 +596,7 @@ static HRESULT WINAPI data_reader_ReadString(IDataReader *iface, UINT32 code_uni
     *value = NULL;
     if (impl->closed)
         return E_ILLEGAL_METHOD_CALL;
-    if (impl->unicode_encoding == Utf8)
+    if (impl->unicode_encoding == UNICODE_ENCODING_UTF8)
     {
         byte_count = code_unit_count;
         if (byte_count > impl->length - impl->position)
@@ -613,7 +619,7 @@ static HRESULT WINAPI data_reader_ReadString(IDataReader *iface, UINT32 code_uni
             return hr;
         }
     }
-    else if (impl->unicode_encoding == Utf16LE || impl->unicode_encoding == Utf16BE)
+    else if (impl->unicode_encoding == UNICODE_ENCODING_UTF16LE || impl->unicode_encoding == UNICODE_ENCODING_UTF16BE)
     {
         if (code_unit_count > ~(UINT32)0 / sizeof(WCHAR))
             return E_BOUNDS;
@@ -627,7 +633,7 @@ static HRESULT WINAPI data_reader_ReadString(IDataReader *iface, UINT32 code_uni
         data = impl->data + impl->position;
         for (i = 0; i < code_unit_count; ++i)
         {
-            if (impl->unicode_encoding == Utf16LE)
+            if (impl->unicode_encoding == UNICODE_ENCODING_UTF16LE)
                 text[i] = data[i * 2] | ((WCHAR)data[i * 2 + 1] << 8);
             else
                 text[i] = ((WCHAR)data[i * 2] << 8) | data[i * 2 + 1];
@@ -995,7 +1001,7 @@ static HRESULT data_writer_write_value(struct data_writer *impl, const void *val
         return hr;
 
     IBuffer_get_Length(impl->buffer, &pos);
-    if ((impl->byte_order == BigEndian) == host_little_endian && size > 1)
+    if ((impl->byte_order == BYTE_ORDER_BIG_ENDIAN) == host_little_endian && size > 1)
     {
         const BYTE *bytes = value;
         for (i = 0; i < size; ++i)
@@ -1033,7 +1039,7 @@ static HRESULT data_writer_measure_string(struct data_writer *impl, HSTRING valu
     string = WindowsGetStringRawBuffer(value, &length);
     switch (impl->unicode_encoding)
     {
-    case Utf8:
+    case UNICODE_ENCODING_UTF8:
         if (!length)
         {
             *size = 0;
@@ -1046,8 +1052,8 @@ static HRESULT data_writer_measure_string(struct data_writer *impl, HSTRING valu
             return HRESULT_FROM_WIN32(GetLastError());
         *size = (UINT32)result;
         return S_OK;
-    case Utf16LE:
-    case Utf16BE:
+    case UNICODE_ENCODING_UTF16LE:
+    case UNICODE_ENCODING_UTF16BE:
         *size = length;
         return S_OK;
     default:
@@ -1351,7 +1357,7 @@ static HRESULT WINAPI data_writer_WriteString(IDataWriter *iface, HSTRING value,
         return hr;
     string = WindowsGetStringRawBuffer(value, &length);
     byte_size = size;
-    if (impl->unicode_encoding != Utf8)
+    if (impl->unicode_encoding != UNICODE_ENCODING_UTF8)
     {
         if (size > ~(UINT32)0 / sizeof(WCHAR))
             return E_OUTOFMEMORY;
@@ -1362,7 +1368,7 @@ static HRESULT WINAPI data_writer_WriteString(IDataWriter *iface, HSTRING value,
     if (!byte_size)
         encoded = NULL;
 
-    if (impl->unicode_encoding == Utf8)
+    if (impl->unicode_encoding == UNICODE_ENCODING_UTF8)
     {
         if (size && !WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, string, length,
                 (char *)encoded, byte_size, NULL, NULL))
@@ -1378,7 +1384,7 @@ static HRESULT WINAPI data_writer_WriteString(IDataWriter *iface, HSTRING value,
         {
             encoded[i * 2] = (BYTE)(string[i] & 0xff);
             encoded[i * 2 + 1] = (BYTE)(string[i] >> 8);
-            if (impl->unicode_encoding == Utf16BE)
+            if (impl->unicode_encoding == UNICODE_ENCODING_UTF16BE)
             {
                 BYTE temp = encoded[i * 2];
                 encoded[i * 2] = encoded[i * 2 + 1];
@@ -1528,8 +1534,8 @@ static HRESULT data_writer_create(IOutputStream *output_stream, IDataWriter **ou
     impl->IDataWriter_iface.lpVtbl = &data_writer_vtbl;
     impl->stream = output_stream;
     impl->ref = 1;
-    impl->unicode_encoding = Utf8;
-    impl->byte_order = BigEndian;
+    impl->unicode_encoding = UNICODE_ENCODING_UTF8;
+    impl->byte_order = BYTE_ORDER_BIG_ENDIAN;
 
     if (FAILED(hr = data_writer_init_buffer(impl, 0)))
     {

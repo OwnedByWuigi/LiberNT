@@ -9,6 +9,8 @@
 #include "package_result.h"
 #include "package_transaction.h"
 
+static const GUID null_guid = {0};
+
 struct deployment_operation
 {
     IAsyncOperationWithProgress_DeploymentResult_DeploymentProgress operation_iface;
@@ -451,7 +453,7 @@ static DWORD WINAPI deployment_worker(void *parameter)
     IUriRuntimeClass *uri = NULL;
     IIterable_Uri *dependencies = NULL;
     IStream *stream;
-    GUID activity_id = GUID_NULL;
+    GUID activity_id = {0};
     IDeploymentResult *result = NULL;
     WCHAR error_text[512] = L"";
     DeploymentProgress progress = {DeploymentProgressState_Processing, 0};
@@ -495,7 +497,7 @@ static DWORD WINAPI deployment_worker(void *parameter)
                                 HRESULT_CODE(hr), 0, error_text, ARRAYSIZE(error_text), NULL);
         if (!length) error_text[0] = UNICODE_NULL;
     }
-    if (FAILED(CoCreateGuid(&activity_id))) activity_id = GUID_NULL;
+    if (FAILED(CoCreateGuid(&activity_id))) activity_id = null_guid;
     operation_error = deployment_result_create(error_text, FAILED(hr) ? hr : S_OK,
                                                &activity_id, &result);
     if (FAILED(operation_error)) goto failed_operation;

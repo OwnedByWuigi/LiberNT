@@ -45,6 +45,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(ver);
 
+BOOL BasepIsPackageFamilyName(PCWSTR family_name);
+
 static const WCHAR appmodel_packages_key[] =
     L"Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\CurrentVersion\\AppModel\\Repository\\Packages";
 
@@ -1688,7 +1690,7 @@ LONG WINAPI /* DECLSPEC_HOTPATCH */ GetPackageFamilyName( HANDLE process, UINT32
  *         GetPackagesByPackageFamily   (kernelbase.@)
  */
 LONG WINAPI DECLSPEC_HOTPATCH GetPackagesByPackageFamily(const WCHAR *family_name, UINT32 *count,
-                                                         WCHAR *full_names, UINT32 *buffer_len, WCHAR *buffer)
+                                                         PWSTR *full_names, UINT32 *buffer_len, WCHAR *buffer)
 {
     HKEY key;
     WCHAR **names = NULL;

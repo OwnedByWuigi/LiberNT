@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <roapi.h>
 #include <shlwapi.h>
+#include <winstring.h>
 
 #define WIDL_using_Windows_Foundation
 #define WIDL_using_Windows_Foundation_Collections
