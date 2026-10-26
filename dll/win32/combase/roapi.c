@@ -128,10 +128,10 @@ HRESULT WINAPI RoInitialize(RO_INIT_TYPE type)
     switch (type) {
     case RO_INIT_SINGLETHREADED:
         return CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    default:
-        FIXME("type %d\n", type);
     case RO_INIT_MULTITHREADED:
         return CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    default:
+        return E_INVALIDARG;
     }
 }
 
@@ -262,6 +262,11 @@ HRESULT WINAPI RoActivateInstance(HSTRING classid, IInspectable **instance)
     HRESULT hr;
 
     FIXME("(%p, %p): semi-stub\n", classid, instance);
+
+    if (!instance)
+        return E_POINTER;
+
+    *instance = NULL;
 
     hr = RoGetActivationFactory(classid, &IID_IActivationFactory, (void **)&factory);
     if (SUCCEEDED(hr))
