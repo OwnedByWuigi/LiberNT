@@ -49,6 +49,7 @@ enum comclass_threadingmodel
 
 static struct apartment *mta;
 static struct apartment *main_sta; /* the first STA */
+static LONG apartment_identifier_counter;
 static struct list apts = LIST_INIT(apts);
 
 static CRITICAL_SECTION apt_cs;
@@ -385,6 +386,7 @@ static struct apartment *apartment_construct(DWORD model)
 
     apt = calloc(1, sizeof(*apt));
     apt->tid = GetCurrentThreadId();
+    apt->identifier = ((UINT64)GetCurrentProcessId() << 32) | (UINT32)InterlockedIncrement(&apartment_identifier_counter);
 
     list_init(&apt->proxies);
     list_init(&apt->stubmgrs);

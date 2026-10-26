@@ -28,6 +28,7 @@ struct apartment
     LONG  refs;              /* refcount of the apartment (LOCK) */
     BOOL multi_threaded;     /* multi-threaded or single-threaded apartment? (RO) */
     DWORD tid;               /* thread id (RO) */
+    UINT64 identifier;
     OXID oxid;               /* object exporter ID (RO) */
     LONG ipidc;              /* interface pointer ID counter, starts at 1 (LOCK) */
     CRITICAL_SECTION cs;     /* thread safety */
