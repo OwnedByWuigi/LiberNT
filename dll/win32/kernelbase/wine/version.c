@@ -36,12 +36,17 @@
 #include "winnls.h"
 #include "winternl.h"
 #include "winerror.h"
+#include "winreg.h"
+#include "strsafe.h"
 #include "appmodel.h"
 
 #include "kernelbase.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ver);
+
+static const WCHAR appmodel_packages_key[] =
+    L"Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\CurrentVersion\\AppModel\\Repository\\Packages";
 
 typedef struct
 {
@@ -1685,14 +1690,107 @@ LONG WINAPI /* DECLSPEC_HOTPATCH */ GetPackageFamilyName( HANDLE process, UINT32
 LONG WINAPI DECLSPEC_HOTPATCH GetPackagesByPackageFamily(const WCHAR *family_name, UINT32 *count,
                                                          WCHAR *full_names, UINT32 *buffer_len, WCHAR *buffer)
 {
-    FIXME( "(%s %p %p %p %p): stub\n", debugstr_w(family_name), count, full_names, buffer_len, buffer );
+    HKEY key;
+    WCHAR **names = NULL;
+    WCHAR *strings = NULL;
+    DWORD subkey_count = 0, max_subkey_length = 0, max_class_length = 0;
+    DWORD values_count = 0, max_value_name_length = 0, max_value_length = 0;
+    DWORD security_descriptor_size = 0, index;
+    UINT32 found_count = 0, required_length = 0;
+    UINT32 count_capacity, buffer_capacity;
+    LONG error;
 
-    if (!count || !buffer_len)
+    if (!family_name || !count || !buffer_len || (!full_names && *count) || (!buffer && *buffer_len) ||
+        !BasepIsPackageFamilyName(family_name))
         return ERROR_INVALID_PARAMETER;
 
-    *count = 0;
-    *buffer_len = 0;
-    return ERROR_SUCCESS;
+    count_capacity = *count;
+    buffer_capacity = *buffer_len;
+    error = RegOpenKeyExW(HKEY_CURRENT_USER, appmodel_packages_key, 0, KEY_ENUMERATE_SUB_KEYS, &key);
+    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+    {
+        *count = 0;
+        *buffer_len = 0;
+        return ERROR_SUCCESS;
+    }
+    if (error != ERROR_SUCCESS)
+        return error;
+
+    error = RegQueryInfoKeyW(key, NULL, NULL, NULL, &subkey_count, &max_subkey_length, &max_class_length,
+                             &values_count, &max_value_name_length, &max_value_length,
+                             &security_descriptor_size, NULL);
+    if (error != ERROR_SUCCESS)
+        goto done;
+    if (subkey_count > MAXDWORD / sizeof(*names) ||
+        subkey_count > (MAXDWORD / sizeof(WCHAR)) / (PACKAGE_FULL_NAME_MAX_LENGTH + 1))
+    {
+        error = ERROR_NOT_ENOUGH_MEMORY;
+        goto done;
+    }
+    if (subkey_count)
+    {
+        names = HeapAlloc(GetProcessHeap(), 0, subkey_count * sizeof(*names));
+        strings = HeapAlloc(GetProcessHeap(), 0,
+                            subkey_count * (PACKAGE_FULL_NAME_MAX_LENGTH + 1) * sizeof(WCHAR));
+        if (!names || !strings)
+        {
+            error = ERROR_NOT_ENOUGH_MEMORY;
+            goto done;
+        }
+    }
+
+    for (index = 0; index < subkey_count; index++)
+    {
+        WCHAR package_full_name[PACKAGE_FULL_NAME_MAX_LENGTH + 1];
+        WCHAR package_family_name[PACKAGE_FAMILY_NAME_MAX_LENGTH + 1];
+        DWORD name_length = ARRAYSIZE(package_full_name);
+        UINT32 family_length = ARRAYSIZE(package_family_name);
+
+        error = RegEnumKeyExW(key, index, package_full_name, &name_length, NULL, NULL, NULL, NULL);
+        if (error != ERROR_SUCCESS)
+            goto done;
+        if (PackageFamilyNameFromFullName(package_full_name, &family_length, package_family_name) != ERROR_SUCCESS ||
+            CompareStringOrdinal(package_family_name, -1, family_name, -1, TRUE) != CSTR_EQUAL)
+            continue;
+
+        if (found_count >= subkey_count ||
+            (SIZE_T)required_length + name_length + 1 > (SIZE_T)subkey_count * (PACKAGE_FULL_NAME_MAX_LENGTH + 1))
+        {
+            error = ERROR_INVALID_DATA;
+            goto done;
+        }
+        names[found_count] = strings + required_length;
+        CopyMemory(names[found_count], package_full_name, (name_length + 1) * sizeof(WCHAR));
+        required_length += name_length + 1;
+        found_count++;
+    }
+
+    RegCloseKey(key);
+    key = NULL;
+    if ((!full_names && found_count) || (!buffer && found_count) || count_capacity < found_count ||
+        buffer_capacity < required_length)
+    {
+        *count = found_count;
+        *buffer_len = required_length;
+        error = found_count ? ERROR_INSUFFICIENT_BUFFER : ERROR_SUCCESS;
+        goto done;
+    }
+
+    if (found_count)
+    {
+        CopyMemory(buffer, strings, required_length * sizeof(WCHAR));
+        for (index = 0; index < found_count; index++)
+            full_names[index] = buffer + (names[index] - strings);
+    }
+    *count = found_count;
+    *buffer_len = required_length;
+    error = ERROR_SUCCESS;
+
+done:
+    if (key) RegCloseKey(key);
+    if (strings) HeapFree(GetProcessHeap(), 0, strings);
+    if (names) HeapFree(GetProcessHeap(), 0, names);
+    return error;
 }
 
 /***********************************************************************
@@ -1700,12 +1798,72 @@ LONG WINAPI DECLSPEC_HOTPATCH GetPackagesByPackageFamily(const WCHAR *family_nam
  */
 LONG WINAPI GetPackagePathByFullName(const WCHAR *name, UINT32 *len, WCHAR *path)
 {
+    HKEY key;
+    WCHAR key_path[256];
+    WCHAR *package_path;
+    DWORD type, size;
+    UINT32 required;
+    LONG error;
+    UINT32 family_name_length = 0;
+
     if (!len || !name)
         return ERROR_INVALID_PARAMETER;
 
-    FIXME( "(%s %p %p): stub\n", debugstr_w(name), len, path );
+    if (!path && *len)
+        return ERROR_INVALID_PARAMETER;
 
-    return APPMODEL_ERROR_NO_PACKAGE;
+    error = PackageFamilyNameFromFullName(name, &family_name_length, NULL);
+    if (error != ERROR_INSUFFICIENT_BUFFER)
+        return ERROR_INVALID_PARAMETER;
+
+    if (FAILED(StringCchPrintfW(key_path, ARRAY_SIZE(key_path), L"%ls\\%ls", appmodel_packages_key, name)))
+        return ERROR_INVALID_PARAMETER;
+
+    error = RegOpenKeyExW(HKEY_CURRENT_USER, key_path, 0, KEY_QUERY_VALUE, &key);
+    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+        return APPMODEL_ERROR_NO_PACKAGE;
+    if (error != ERROR_SUCCESS)
+        return error;
+
+    error = RegQueryValueExW(key, L"PackageRootFolder", NULL, &type, NULL, &size);
+    if (error != ERROR_SUCCESS || type != REG_SZ || !size || size % sizeof(WCHAR))
+    {
+        RegCloseKey(key);
+        return error != ERROR_SUCCESS ? error : ERROR_INVALID_DATA;
+    }
+
+    if (!(package_path = HeapAlloc(GetProcessHeap(), 0, size)))
+    {
+        RegCloseKey(key);
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
+
+    {
+        DWORD allocated_size = size;
+
+        error = RegQueryValueExW(key, L"PackageRootFolder", NULL, &type, (BYTE *)package_path, &size);
+        if (error == ERROR_SUCCESS && (size > allocated_size || !size || size % sizeof(WCHAR)))
+            error = ERROR_INVALID_DATA;
+    }
+    RegCloseKey(key);
+    if (error != ERROR_SUCCESS || type != REG_SZ || package_path[size / sizeof(WCHAR) - 1] != UNICODE_NULL)
+    {
+        HeapFree(GetProcessHeap(), 0, package_path);
+        return error != ERROR_SUCCESS ? error : ERROR_INVALID_DATA;
+    }
+
+    required = (UINT32)lstrlenW(package_path) + 1;
+    if (!path || *len < required)
+    {
+        *len = required;
+        HeapFree(GetProcessHeap(), 0, package_path);
+        return ERROR_INSUFFICIENT_BUFFER;
+    }
+
+    CopyMemory(path, package_path, required * sizeof(WCHAR));
+    *len = required;
+    HeapFree(GetProcessHeap(), 0, package_path);
+    return ERROR_SUCCESS;
 }
 
 static const struct
@@ -1738,15 +1896,18 @@ static UINT32 processor_arch_from_string(const WCHAR *str, unsigned int len)
  */
 LONG WINAPI PackageIdFromFullName(const WCHAR *full_name, UINT32 flags, UINT32 *buffer_length, BYTE *buffer)
 {
-    const WCHAR *name, *version_str, *arch_str, *resource_id, *publisher_id, *s;
-    PACKAGE_ID *id = (PACKAGE_ID *)buffer;
-    UINT32 size, buffer_size, len;
+    const WCHAR *fields[5];
+    SIZE_T lengths[5];
+    UINT32 version[4] = {0};
+    UINT32 architecture = ~0u;
+    UINT32 size, buffer_size, field, index;
+    SIZE_T required_chars;
+    UINT32 digits = 0;
+    BYTE *cursor;
+    PACKAGE_ID *id;
 
     TRACE("full_name %s, flags %#x, buffer_length %p, buffer %p.\n",
             debugstr_w(full_name), flags, buffer_length, buffer);
-
-    if (flags)
-        FIXME("Flags %#x are not supported.\n", flags);
 
     if (!full_name || !buffer_length)
         return ERROR_INVALID_PARAMETER;
@@ -1754,70 +1915,113 @@ LONG WINAPI PackageIdFromFullName(const WCHAR *full_name, UINT32 flags, UINT32 *
     if (!buffer && *buffer_length)
         return ERROR_INVALID_PARAMETER;
 
-    name = full_name;
-    if (!(version_str = wcschr(name, L'_')))
-        return ERROR_INVALID_PARAMETER;
-    ++version_str;
-
-    if (!(arch_str = wcschr(version_str, L'_')))
-        return ERROR_INVALID_PARAMETER;
-    ++arch_str;
-
-    if (!(resource_id = wcschr(arch_str, L'_')))
-        return ERROR_INVALID_PARAMETER;
-    ++resource_id;
-
-    if (!(publisher_id = wcschr(resource_id, L'_')))
-        return ERROR_INVALID_PARAMETER;
-    ++publisher_id;
-
-    /* Publisher id length should be 13. */
-    size = sizeof(*id) + sizeof(WCHAR) * ((version_str - name) + (publisher_id - resource_id) + 13 + 1);
-    buffer_size = *buffer_length;
-    *buffer_length = size;
-    if (buffer_size < size)
-        return ERROR_INSUFFICIENT_BUFFER;
-
-    memset(id, 0, sizeof(*id));
-    if ((id->processorArchitecture = processor_arch_from_string(arch_str, resource_id - arch_str - 1)) == ~0u)
+    fields[0] = full_name;
+    field = 0;
+    for (index = 0; ; index++)
     {
-        FIXME("Unrecognized arch %s.\n", debugstr_w(arch_str));
-        return ERROR_INVALID_PARAMETER;
+        if (full_name[index] == L'_' || !full_name[index])
+        {
+            if (field >= ARRAY_SIZE(fields))
+                return ERROR_INVALID_PARAMETER;
+            lengths[field] = full_name + index - fields[field];
+            if (!full_name[index])
+                break;
+            if (field + 1 >= ARRAY_SIZE(fields))
+                return ERROR_INVALID_PARAMETER;
+            fields[++field] = full_name + index + 1;
+        }
     }
-    buffer += sizeof(*id);
 
-    id->version.Major = wcstol(version_str, NULL, 10);
-    if (!(s = wcschr(version_str, L'.')))
+    if (field != ARRAY_SIZE(fields) - 1 ||
+        lengths[0] < PACKAGE_NAME_MIN_LENGTH || lengths[0] > PACKAGE_NAME_MAX_LENGTH ||
+        lengths[2] < PACKAGE_ARCHITECTURE_MIN_LENGTH || lengths[2] > PACKAGE_ARCHITECTURE_MAX_LENGTH ||
+        lengths[3] > PACKAGE_RESOURCEID_MAX_LENGTH ||
+        lengths[4] != PACKAGE_PUBLISHERID_MAX_LENGTH ||
+        lengths[1] < PACKAGE_VERSION_MIN_LENGTH || lengths[1] > PACKAGE_VERSION_MAX_LENGTH)
         return ERROR_INVALID_PARAMETER;
-    ++s;
-    id->version.Minor = wcstol(s, NULL, 10);
-    if (!(s = wcschr(s, L'.')))
-        return ERROR_INVALID_PARAMETER;
-    ++s;
-    id->version.Build = wcstol(s, NULL, 10);
-    if (!(s = wcschr(s, L'.')))
-        return ERROR_INVALID_PARAMETER;
-    ++s;
-    id->version.Revision = wcstol(s, NULL, 10);
 
-    id->name = (WCHAR *)buffer;
-    len = version_str - name - 1;
-    memcpy(id->name, name, sizeof(*id->name) * len);
-    id->name[len] = 0;
-    buffer += sizeof(*id->name) * (len + 1);
+    for (index = 0; index < lengths[0]; index++)
+        if (!((fields[0][index] >= L'0' && fields[0][index] <= L'9') ||
+              (fields[0][index] >= L'A' && fields[0][index] <= L'Z') ||
+              (fields[0][index] >= L'a' && fields[0][index] <= L'z') ||
+              fields[0][index] == L'.' || fields[0][index] == L'-'))
+            return ERROR_INVALID_PARAMETER;
+    for (index = 0; index < lengths[3]; index++)
+        if (!((fields[3][index] >= L'0' && fields[3][index] <= L'9') ||
+              (fields[3][index] >= L'A' && fields[3][index] <= L'Z') ||
+              (fields[3][index] >= L'a' && fields[3][index] <= L'z') ||
+              fields[3][index] == L'.' || fields[3][index] == L'-'))
+            return ERROR_INVALID_PARAMETER;
+    for (index = 0; index < lengths[4]; index++)
+        if (!((fields[4][index] >= L'0' && fields[4][index] <= L'9') ||
+              (fields[4][index] >= L'a' && fields[4][index] <= L'h') ||
+              (fields[4][index] >= L'j' && fields[4][index] <= L'k') ||
+              (fields[4][index] >= L'm' && fields[4][index] <= L'n') ||
+              (fields[4][index] >= L'p' && fields[4][index] <= L't') ||
+              fields[4][index] == L'v' || (fields[4][index] >= L'w' && fields[4][index] <= L'z') ||
+              (fields[4][index] >= L'A' && fields[4][index] <= L'H') ||
+              (fields[4][index] >= L'J' && fields[4][index] <= L'K') ||
+              (fields[4][index] >= L'M' && fields[4][index] <= L'N') ||
+              (fields[4][index] >= L'P' && fields[4][index] <= L'T') ||
+              fields[4][index] == L'V' || (fields[4][index] >= L'W' && fields[4][index] <= L'Z')))
+            return ERROR_INVALID_PARAMETER;
 
-    id->resourceId = (WCHAR *)buffer;
-    len = publisher_id - resource_id - 1;
-    memcpy(id->resourceId, resource_id, sizeof(*id->resourceId) * len);
-    id->resourceId[len] = 0;
-    buffer += sizeof(*id->resourceId) * (len + 1);
-
-    id->publisherId = (WCHAR *)buffer;
-    len = lstrlenW(publisher_id);
-    if (len != 13)
+    architecture = processor_arch_from_string(fields[2], lengths[2]);
+    if (architecture == ~0u)
         return ERROR_INVALID_PARAMETER;
-    memcpy(id->publisherId, publisher_id, sizeof(*id->publisherId) * len);
-    id->publisherId[len] = 0;
+
+    field = 0;
+    for (index = 0; index < lengths[1]; index++)
+    {
+        if (fields[1][index] == L'.')
+        {
+            if (!digits || field >= ARRAY_SIZE(version) - 1)
+                return ERROR_INVALID_PARAMETER;
+            field++;
+            digits = 0;
+            continue;
+        }
+        if (fields[1][index] < L'0' || fields[1][index] > L'9' || field >= ARRAY_SIZE(version))
+            return ERROR_INVALID_PARAMETER;
+        version[field] = version[field] * 10 + fields[1][index] - L'0';
+        if (version[field] > 0xffff)
+            return ERROR_INVALID_PARAMETER;
+        digits++;
+    }
+    if (field != ARRAY_SIZE(version) - 1 || !digits)
+        return ERROR_INVALID_PARAMETER;
+
+    required_chars = lengths[0] + lengths[3] + lengths[4] + 3;
+    if (required_chars > (MAXDWORD - sizeof(PACKAGE_ID)) / sizeof(WCHAR))
+        return ERROR_INVALID_PARAMETER;
+    size = sizeof(PACKAGE_ID) + (UINT32)(required_chars * sizeof(WCHAR));
+    buffer_size = *buffer_length;
+    if (buffer_size < size)
+    {
+        *buffer_length = size;
+        return ERROR_INSUFFICIENT_BUFFER;
+    }
+
+    id = (PACKAGE_ID *)buffer;
+    memset(id, 0, sizeof(*id));
+    id->processorArchitecture = architecture;
+    id->version.Major = version[0];
+    id->version.Minor = version[1];
+    id->version.Build = version[2];
+    id->version.Revision = version[3];
+    cursor = buffer + sizeof(*id);
+    id->name = (WCHAR *)cursor;
+    CopyMemory(id->name, fields[0], lengths[0] * sizeof(WCHAR));
+    id->name[lengths[0]] = UNICODE_NULL;
+    cursor += (lengths[0] + 1) * sizeof(WCHAR);
+    id->resourceId = (WCHAR *)cursor;
+    CopyMemory(id->resourceId, fields[3], lengths[3] * sizeof(WCHAR));
+    id->resourceId[lengths[3]] = UNICODE_NULL;
+    cursor += (lengths[3] + 1) * sizeof(WCHAR);
+    id->publisherId = (WCHAR *)cursor;
+    CopyMemory(id->publisherId, fields[4], lengths[4] * sizeof(WCHAR));
+    id->publisherId[lengths[4]] = UNICODE_NULL;
+    *buffer_length = size;
 
     return ERROR_SUCCESS;
 }

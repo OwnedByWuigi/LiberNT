@@ -1046,9 +1046,9 @@
 #@ stdcall OutputDebugStringW(wstr)
 # #@ stub OverrideRoamingDataModificationTimesInRange
 # #@ stub PackageFamilyNameFromFullName
-# #@ stub PackageFamilyNameFromId
+#@ stdcall PackageFamilyNameFromId(ptr ptr ptr) kernelbase.PackageFamilyNameFromId
 # #@ stub PackageFamilyNameFromProductId
-# #@ stub PackageFullNameFromId
+#@ stdcall PackageFullNameFromId(ptr ptr ptr) kernelbase.PackageFullNameFromId
 # #@ stub PackageFullNameFromProductId
 #@ stdcall PackageIdFromFullName(wstr long ptr ptr)
 # #@ stub PackageIdFromProductId

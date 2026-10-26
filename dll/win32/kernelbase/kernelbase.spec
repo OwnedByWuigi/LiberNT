@@ -836,6 +836,8 @@
 @ stdcall OutputDebugStringA(str) kernel32.OutputDebugStringA
 @ stdcall OutputDebugStringW(wstr) kernel32.OutputDebugStringW
 @ stdcall PackageFamilyNameFromFullName(wstr ptr ptr)
+@ stdcall PackageFamilyNameFromId(ptr ptr ptr)
+@ stdcall PackageFullNameFromId(ptr ptr ptr)
 @ stdcall PackageIdFromFullName(wstr long ptr ptr)
 @ stdcall ParseApplicationUserModelId(wstr ptr ptr ptr ptr)
 @ stdcall ParseURLA(str ptr)

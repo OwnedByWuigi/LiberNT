@@ -7,6 +7,10 @@
 
 #include <windows.h>
 #include <appmodel.h>
+#include <bcrypt.h>
+#include <strsafe.h>
+#include <wchar.h>
+#include <winternl.h>
 
 static BOOL
 IsPackageNameCharacter(
@@ -27,11 +31,226 @@ IsPublisherIdCharacter(
 
     for (Current = PublisherIdAlphabet; *Current; Current++)
     {
-        if (*Current == Character)
+        if (*Current == Character || towupper(*Current) == Character)
             return TRUE;
     }
 
     return FALSE;
+}
+
+static BOOL
+IsPackageString(
+    _In_reads_(Length) PCWSTR String,
+    _In_ SIZE_T Length,
+    _In_ SIZE_T MaximumLength)
+{
+    SIZE_T Index;
+
+    if (!Length || Length > MaximumLength)
+        return FALSE;
+
+    for (Index = 0; Index < Length; Index++)
+    {
+        if (!IsPackageNameCharacter(String[Index]))
+            return FALSE;
+    }
+
+    return TRUE;
+}
+
+static LONG
+BasepGetPublisherId(
+    _In_ PCWSTR Publisher,
+    _Out_writes_(14) PWSTR PublisherId)
+{
+    static const WCHAR Alphabet[] = L"0123456789abcdefghjkmnpqrstvwxyz";
+    BCRYPT_ALG_HANDLE Algorithm = NULL;
+    UCHAR Digest[32];
+    SIZE_T PublisherLength;
+    ULONG Index, Bit;
+    NTSTATUS Status;
+
+    if (!Publisher || (PublisherLength = wcslen(Publisher)) < PACKAGE_PUBLISHER_MIN_LENGTH ||
+        PublisherLength > PACKAGE_PUBLISHER_MAX_LENGTH)
+        return ERROR_INVALID_PARAMETER;
+
+    Status = BCryptOpenAlgorithmProvider(&Algorithm, BCRYPT_SHA256_ALGORITHM, NULL, 0);
+    if (Status < 0)
+        return RtlNtStatusToDosError(Status);
+
+    Status = BCryptHash(Algorithm, NULL, 0, (PUCHAR)Publisher,
+                        (ULONG)(PublisherLength * sizeof(WCHAR)), Digest, sizeof(Digest));
+    BCryptCloseAlgorithmProvider(Algorithm, 0);
+    if (Status < 0)
+        return RtlNtStatusToDosError(Status);
+
+    for (Index = 0; Index < 13; Index++)
+    {
+        UCHAR Value = 0;
+
+        for (Bit = 0; Bit < 5; Bit++)
+        {
+            ULONG BitIndex = Index * 5 + Bit;
+            Value = (Value << 1) | ((Digest[BitIndex / 8] >> (7 - BitIndex % 8)) & 1);
+        }
+        PublisherId[Index] = Alphabet[Value];
+    }
+    PublisherId[13] = UNICODE_NULL;
+    SecureZeroMemory(Digest, sizeof(Digest));
+    return ERROR_SUCCESS;
+}
+
+static LONG
+BasepGetPackagePublisherId(
+    _In_ const PACKAGE_ID *PackageId,
+    _Out_writes_(14) PWSTR PublisherId)
+{
+    SIZE_T Length;
+    SIZE_T Index;
+
+    if (PackageId->publisherId)
+    {
+        Length = wcslen(PackageId->publisherId);
+        if (Length != 13)
+            return ERROR_INVALID_PARAMETER;
+        for (Index = 0; Index < Length; Index++)
+        {
+            if (!IsPublisherIdCharacter(PackageId->publisherId[Index]))
+                return ERROR_INVALID_PARAMETER;
+            PublisherId[Index] = PackageId->publisherId[Index];
+        }
+        PublisherId[13] = UNICODE_NULL;
+        return ERROR_SUCCESS;
+    }
+
+    return BasepGetPublisherId(PackageId->publisher, PublisherId);
+}
+
+LONG
+WINAPI
+PackageFamilyNameFromId(
+    _In_ const PACKAGE_ID *PackageId,
+    _Inout_ UINT32 *PackageFamilyNameLength,
+    _Out_writes_opt_(*PackageFamilyNameLength) PWSTR PackageFamilyName)
+{
+    WCHAR PublisherId[14];
+    WCHAR FamilyName[65 + 1 + 13 + 1];
+    SIZE_T NameLength;
+    UINT32 RequiredLength;
+    LONG Error;
+
+    if (!PackageId || !PackageId->name || !PackageFamilyNameLength ||
+        (!PackageFamilyName && *PackageFamilyNameLength))
+    {
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    NameLength = wcslen(PackageId->name);
+    if (NameLength < PACKAGE_NAME_MIN_LENGTH || !IsPackageString(PackageId->name, NameLength, PACKAGE_NAME_MAX_LENGTH))
+        return ERROR_INVALID_PARAMETER;
+    if ((Error = BasepGetPackagePublisherId(PackageId, PublisherId)) != ERROR_SUCCESS)
+        return Error;
+
+    if (FAILED(StringCchCopyW(FamilyName, ARRAYSIZE(FamilyName), PackageId->name)) ||
+        FAILED(StringCchCatW(FamilyName, ARRAYSIZE(FamilyName), L"_")) ||
+        FAILED(StringCchCatW(FamilyName, ARRAYSIZE(FamilyName), PublisherId)))
+    {
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    RequiredLength = (UINT32)wcslen(FamilyName) + 1;
+    if (!PackageFamilyName || *PackageFamilyNameLength < RequiredLength)
+    {
+        *PackageFamilyNameLength = RequiredLength;
+        return ERROR_INSUFFICIENT_BUFFER;
+    }
+
+    CopyMemory(PackageFamilyName, FamilyName, RequiredLength * sizeof(WCHAR));
+    *PackageFamilyNameLength = RequiredLength;
+    return ERROR_SUCCESS;
+}
+
+LONG
+WINAPI
+PackageFullNameFromId(
+    _In_ const PACKAGE_ID *PackageId,
+    _Inout_ UINT32 *PackageFullNameLength,
+    _Out_writes_opt_(*PackageFullNameLength) PWSTR PackageFullName)
+{
+    static const struct
+    {
+        UINT32 Architecture;
+        PCWSTR Name;
+    } Architectures[] =
+    {
+        { PROCESSOR_ARCHITECTURE_INTEL, L"x86" },
+        { PROCESSOR_ARCHITECTURE_ARM, L"arm" },
+        { PROCESSOR_ARCHITECTURE_AMD64, L"x64" },
+        { PROCESSOR_ARCHITECTURE_NEUTRAL, L"neutral" },
+        { PROCESSOR_ARCHITECTURE_ARM64, L"arm64" },
+        { PROCESSOR_ARCHITECTURE_IA32_ON_ARM64, L"x86a64" },
+        { PROCESSOR_ARCHITECTURE_UNKNOWN, L"unknown" },
+    };
+    WCHAR PublisherId[14];
+    WCHAR FullName[PACKAGE_FULL_NAME_MAX_LENGTH + 1];
+    PCWSTR Architecture = NULL;
+    SIZE_T NameLength, ResourceIdLength;
+    UINT32 RequiredLength;
+    ULONG Index;
+    LONG Error;
+
+    if (!PackageId || !PackageId->name || !PackageFullNameLength ||
+        (!PackageFullName && *PackageFullNameLength))
+    {
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    NameLength = wcslen(PackageId->name);
+    ResourceIdLength = PackageId->resourceId ? wcslen(PackageId->resourceId) : 0;
+    if (NameLength < PACKAGE_NAME_MIN_LENGTH ||
+        !IsPackageString(PackageId->name, NameLength, PACKAGE_NAME_MAX_LENGTH) ||
+        (ResourceIdLength && !IsPackageString(PackageId->resourceId, ResourceIdLength, PACKAGE_RESOURCEID_MAX_LENGTH)))
+    {
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    for (Index = 0; Index < ARRAYSIZE(Architectures); Index++)
+    {
+        if (PackageId->processorArchitecture == Architectures[Index].Architecture)
+        {
+            Architecture = Architectures[Index].Name;
+            break;
+        }
+    }
+    if (!Architecture)
+        return ERROR_INVALID_PARAMETER;
+
+    if ((Error = BasepGetPackagePublisherId(PackageId, PublisherId)) != ERROR_SUCCESS)
+        return Error;
+
+    if (FAILED(StringCchPrintfW(FullName, ARRAYSIZE(FullName), L"%ls_%u.%u.%u.%u_%ls_%ls_%ls",
+                                PackageId->name,
+                                PackageId->version.Major,
+                                PackageId->version.Minor,
+                                PackageId->version.Build,
+                                PackageId->version.Revision,
+                                Architecture,
+                                PackageId->resourceId ? PackageId->resourceId : L"",
+                                PublisherId)))
+    {
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    RequiredLength = (UINT32)wcslen(FullName) + 1;
+    if (!PackageFullName || *PackageFullNameLength < RequiredLength)
+    {
+        *PackageFullNameLength = RequiredLength;
+        return ERROR_INSUFFICIENT_BUFFER;
+    }
+
+    CopyMemory(PackageFullName, FullName, RequiredLength * sizeof(WCHAR));
+    *PackageFullNameLength = RequiredLength;
+    return ERROR_SUCCESS;
 }
 
 BOOL
@@ -135,7 +354,7 @@ IsValidPackageArchitecture(
     _In_reads_(Length) PCWSTR Architecture,
     _In_ SIZE_T Length)
 {
-    static const PCWSTR Architectures[] = { L"x86", L"x64", L"arm", L"arm64", L"neutral", L"x86a64" };
+    static const PCWSTR Architectures[] = { L"x86", L"x64", L"arm", L"arm64", L"neutral", L"x86a64", L"unknown" };
     ULONG Index;
 
     for (Index = 0; Index < ARRAYSIZE(Architectures); Index++)

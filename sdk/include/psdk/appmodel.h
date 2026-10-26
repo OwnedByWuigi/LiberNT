@@ -68,6 +68,23 @@ typedef struct PACKAGE_ID
     PWSTR publisherId;
 } PACKAGE_ID;
 
+#define PACKAGE_ARCHITECTURE_MIN_LENGTH     3
+#define PACKAGE_ARCHITECTURE_MAX_LENGTH     7
+#define PACKAGE_VERSION_MIN_LENGTH          7
+#define PACKAGE_VERSION_MAX_LENGTH          23
+#define PACKAGE_NAME_MIN_LENGTH             3
+#define PACKAGE_NAME_MAX_LENGTH             50
+#define PACKAGE_PUBLISHER_MIN_LENGTH        3
+#define PACKAGE_PUBLISHER_MAX_LENGTH        8192
+#define PACKAGE_PUBLISHERID_MIN_LENGTH      13
+#define PACKAGE_PUBLISHERID_MAX_LENGTH      13
+#define PACKAGE_RESOURCEID_MIN_LENGTH       0
+#define PACKAGE_RESOURCEID_MAX_LENGTH       30
+#define PACKAGE_FULL_NAME_MIN_LENGTH        30
+#define PACKAGE_FULL_NAME_MAX_LENGTH        127
+#define PACKAGE_FAMILY_NAME_MIN_LENGTH      17
+#define PACKAGE_FAMILY_NAME_MAX_LENGTH      64
+
 #define PACKAGE_PROPERTY_FRAMEWORK          0x00000001
 #define PACKAGE_PROPERTY_RESOURCE           0x00000002
 #define PACKAGE_PROPERTY_BUNDLE             0x00000004
@@ -86,6 +103,66 @@ typedef struct PACKAGE_ID
 #define PACKAGE_FILTER_STATIC               PACKAGE_PROPERTY_STATIC
 #define PACKAGE_PROPERTY_DYNAMIC            0x00100000
 #define PACKAGE_FILTER_DYNAMIC              PACKAGE_PROPERTY_DYNAMIC
+
+WINBASEAPI
+_Success_(return == ERROR_SUCCESS)
+LONG
+WINAPI
+PackageFullNameFromId(
+    _In_ const PACKAGE_ID* packageId,
+    _Inout_ UINT32* packageFullNameLength,
+    _Out_writes_opt_(*packageFullNameLength) PWSTR packageFullName);
+
+WINBASEAPI
+_Success_(return == ERROR_SUCCESS)
+LONG
+WINAPI
+PackageFamilyNameFromId(
+    _In_ const PACKAGE_ID* packageId,
+    _Inout_ UINT32* packageFamilyNameLength,
+    _Out_writes_opt_(*packageFamilyNameLength) PWSTR packageFamilyName);
+
+WINBASEAPI
+_Success_(return == ERROR_SUCCESS)
+LONG
+WINAPI
+PackageFamilyNameFromFullName(
+    _In_ PCWSTR packageFullName,
+    _Inout_ UINT32* packageFamilyNameLength,
+    _Out_writes_opt_(*packageFamilyNameLength) PWSTR packageFamilyName);
+
+WINBASEAPI
+_Success_(return == ERROR_SUCCESS)
+LONG
+WINAPI
+PackageIdFromFullName(
+    _In_ PCWSTR packageFullName,
+    _In_ UINT32 flags,
+    _Inout_ UINT32* bufferLength,
+    _Out_writes_bytes_opt_(*bufferLength) BYTE* buffer);
+
+WINBASEAPI
+_Check_return_
+_Success_(return == ERROR_SUCCESS)
+_On_failure_(_Unchanged_(*count))
+_On_failure_(_Unchanged_(*bufferLength))
+LONG
+WINAPI
+GetPackagesByPackageFamily(
+    _In_ PCWSTR packageFamilyName,
+    _Inout_ UINT32* count,
+    _Out_writes_opt_(*count) PWSTR* packageFullNames,
+    _Inout_ UINT32* bufferLength,
+    _Out_writes_opt_(*bufferLength) WCHAR* buffer);
+
+WINBASEAPI
+_Success_(return == ERROR_SUCCESS)
+LONG
+WINAPI
+GetPackagePathByFullName(
+    _In_ PCWSTR packageFullName,
+    _Inout_ UINT32* pathLength,
+    _Out_writes_opt_(*pathLength) PWSTR path);
 
 WINBASEAPI
 _Success_(return == ERROR_SUCCESS)

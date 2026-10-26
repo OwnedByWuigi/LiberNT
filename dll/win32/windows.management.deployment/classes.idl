@@ -1,0 +1,18 @@
+/*
+ * PROJECT:     LiberNT Windows Runtime
+ * LICENSE:     GPL-3.0-or-later (https://spdx.org/licenses/GPL-3.0-or-later)
+ * PURPOSE:     Runtime class registration for package deployment
+ * COPYRIGHT:   Copyright 2026 LiberNT contributors
+ */
+
+#pragma makedep register
+#pragma winrt ns_prefix
+
+import "windowscontracts.idl";
+import "windows.foundation.idl";
+import "windows.applicationmodel.idl";
+import "windows.management.deployment.idl";
+
+namespace Windows.Management.Deployment {
+    runtimeclass PackageManager;
+}

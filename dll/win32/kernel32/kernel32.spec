@@ -971,6 +971,9 @@
 @ stdcall OutputDebugStringA(str)
 @ stdcall OutputDebugStringW(wstr)
 @ stdcall -version=0x602+ PackageFamilyNameFromFullName(wstr ptr ptr) kernelbase.PackageFamilyNameFromFullName
+@ stdcall -version=0x602+ PackageFamilyNameFromId(ptr ptr ptr) kernelbase.PackageFamilyNameFromId
+@ stdcall -version=0x602+ PackageFullNameFromId(ptr ptr ptr) kernelbase.PackageFullNameFromId
+@ stdcall -version=0x602+ PackageIdFromFullName(wstr long ptr ptr) kernelbase.PackageIdFromFullName
 @ stdcall -version=0x602+ ParseApplicationUserModelId(wstr ptr ptr ptr ptr) kernelbase.ParseApplicationUserModelId
 @ stdcall PeekConsoleInputA(ptr ptr long ptr) kernelbase.PeekConsoleInputA
 @ stdcall PeekConsoleInputW(ptr ptr long ptr) kernelbase.PeekConsoleInputW
