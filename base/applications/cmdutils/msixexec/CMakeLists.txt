@@ -1,0 +1,6 @@
+add_executable(msixexec main.c)
+add_dependencies(msixexec psdk)
+set_module_type(msixexec win32cui UNICODE)
+target_link_libraries(msixexec uuid)
+add_importlibs(msixexec combase shlwapi msvcrt kernel32 ntdll)
+add_cd_file(TARGET msixexec DESTINATION reactos/system32 FOR all)
