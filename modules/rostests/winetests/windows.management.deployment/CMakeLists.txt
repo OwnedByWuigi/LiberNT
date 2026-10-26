@@ -1,0 +1,5 @@
+add_executable(windows_management_deployment_winetest package_manager.c testlist.c)
+target_link_libraries(windows_management_deployment_winetest wine uuid)
+set_module_type(windows_management_deployment_winetest win32cui)
+add_importlibs(windows_management_deployment_winetest combase msvcrt kernel32 ntdll)
+add_rostests_file(TARGET windows_management_deployment_winetest)
