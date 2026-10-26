@@ -25,6 +25,46 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(data);
 
+static HRESULT
+application_data_get_iids(
+    REFIID iid,
+    ULONG *count,
+    IID **iids)
+{
+    IID *result;
+
+    if (!count || !iids) return E_POINTER;
+
+    *count = 0;
+    *iids = NULL;
+    if (!(result = CoTaskMemAlloc(sizeof(*result)))) return E_OUTOFMEMORY;
+
+    *result = *iid;
+    *iids = result;
+    *count = 1;
+    return S_OK;
+}
+
+static HRESULT
+application_data_get_runtime_class_name(
+    HSTRING *class_name)
+{
+    static const WCHAR name[] = L"Windows.Storage.ApplicationData";
+
+    if (!class_name) return E_POINTER;
+    *class_name = NULL;
+    return WindowsCreateString(name, ARRAYSIZE(name) - 1, class_name);
+}
+
+static HRESULT
+application_data_get_trust_level(
+    TrustLevel *trust_level)
+{
+    if (!trust_level) return E_POINTER;
+    *trust_level = BaseTrust;
+    return S_OK;
+}
+
 struct application_data_statics
 {
     IActivationFactory IActivationFactory_iface;
@@ -42,6 +82,9 @@ static HRESULT WINAPI factory_QueryInterface( IActivationFactory *iface, REFIID 
     struct application_data_statics *impl = impl_from_IActivationFactory( iface );
 
     TRACE( "iface %p, iid %s, out %p.\n", iface, debugstr_guid( iid ), out );
+
+    if (!out) return E_POINTER;
+    *out = NULL;
 
     if (IsEqualGUID( iid, &IID_IUnknown ) ||
         IsEqualGUID( iid, &IID_IInspectable ) ||
@@ -83,25 +126,27 @@ static ULONG WINAPI factory_Release( IActivationFactory *iface )
 
 static HRESULT WINAPI factory_GetIids( IActivationFactory *iface, ULONG *iid_count, IID **iids )
 {
-    FIXME( "iface %p, iid_count %p, iids %p stub!\n", iface, iid_count, iids );
-    return E_NOTIMPL;
+    UNREFERENCED_PARAMETER(iface);
+    return application_data_get_iids(&IID_IApplicationDataStatics, iid_count, iids);
 }
 
 static HRESULT WINAPI factory_GetRuntimeClassName( IActivationFactory *iface, HSTRING *class_name )
 {
-    FIXME( "iface %p, class_name %p stub!\n", iface, class_name );
-    return E_NOTIMPL;
+    UNREFERENCED_PARAMETER(iface);
+    return application_data_get_runtime_class_name(class_name);
 }
 
 static HRESULT WINAPI factory_GetTrustLevel( IActivationFactory *iface, TrustLevel *trust_level )
 {
-    FIXME( "iface %p, trust_level %p stub!\n", iface, trust_level );
-    return E_NOTIMPL;
+    UNREFERENCED_PARAMETER(iface);
+    return application_data_get_trust_level(trust_level);
 }
 
 static HRESULT WINAPI factory_ActivateInstance( IActivationFactory *iface, IInspectable **instance )
 {
-    FIXME( "iface %p, instance %p stub!\n", iface, instance );
+    UNREFERENCED_PARAMETER(iface);
+    if (!instance) return E_POINTER;
+    *instance = NULL;
     return E_NOTIMPL;
 }
 
@@ -134,6 +179,9 @@ static HRESULT WINAPI application_data_QueryInterface( IApplicationData *iface, 
     struct application_data *impl = impl_from_IApplicationData( iface );
 
     TRACE( "iface %p, iid %s, out %p.\n", iface, debugstr_guid( iid ), out );
+
+    if (!out) return E_POINTER;
+    *out = NULL;
 
     if (IsEqualGUID( iid, &IID_IUnknown ) ||
         IsEqualGUID( iid, &IID_IInspectable ) ||
@@ -171,20 +219,20 @@ static ULONG WINAPI application_data_Release( IApplicationData *iface )
 
 static HRESULT WINAPI application_data_GetIids( IApplicationData *iface, ULONG *iid_count, IID **iids )
 {
-    FIXME( "iface %p, iid_count %p, iids %p stub!\n", iface, iid_count, iids );
-    return E_NOTIMPL;
+    UNREFERENCED_PARAMETER(iface);
+    return application_data_get_iids(&IID_IApplicationData, iid_count, iids);
 }
 
 static HRESULT WINAPI application_data_GetRuntimeClassName( IApplicationData *iface, HSTRING *class_name )
 {
-    FIXME( "iface %p, class_name %p stub!\n", iface, class_name );
-    return E_NOTIMPL;
+    UNREFERENCED_PARAMETER(iface);
+    return application_data_get_runtime_class_name(class_name);
 }
 
 static HRESULT WINAPI application_data_GetTrustLevel( IApplicationData *iface, TrustLevel *trust_level )
 {
-    FIXME( "iface %p, trust_level %p stub!\n", iface, trust_level );
-    return E_NOTIMPL;
+    UNREFERENCED_PARAMETER(iface);
+    return application_data_get_trust_level(trust_level);
 }
 
 static HRESULT WINAPI application_data_get_Version( IApplicationData *iface, UINT32 *value )

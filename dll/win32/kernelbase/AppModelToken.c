@@ -11,6 +11,10 @@
 
 #define APPCONTAINER_MAPPINGS_KEY L"Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\CurrentVersion\\AppContainer\\Mappings"
 
+BOOL
+BasepIsPackageFamilyName(
+    _In_ PCWSTR PackageFamilyName);
+
 static
 LONG
 BasepGetTokenMoniker(
@@ -27,8 +31,10 @@ BasepGetTokenMoniker(
     HKEY Key;
     LONG Error;
 
-    if (!GetTokenInformation(Token, TokenAppContainerSid, Buffer, sizeof(Buffer), &Returned) ||
-        !Package->TokenAppContainer)
+    if (!GetTokenInformation(Token, TokenAppContainerSid, Buffer, sizeof(Buffer), &Returned))
+        return GetLastError();
+
+    if (!Package->TokenAppContainer)
     {
         return APPMODEL_ERROR_NO_PACKAGE;
     }
@@ -67,12 +73,39 @@ GetPackageFamilyNameFromToken(
     _Inout_ UINT32 *packageFamilyNameLength,
     _Out_writes_opt_(*packageFamilyNameLength) PWSTR packageFamilyName)
 {
-    UNREFERENCED_PARAMETER(token);
-    UNREFERENCED_PARAMETER(packageFamilyName);
+    WCHAR Moniker[256];
+    UINT32 RequiredLength;
+    LONG Error;
 
-    if (!packageFamilyNameLength)
+    if (!token || !packageFamilyNameLength)
         return ERROR_INVALID_PARAMETER;
-    return APPMODEL_ERROR_NO_PACKAGE;
+
+    Error = BasepGetTokenMoniker(token, Moniker, ARRAYSIZE(Moniker));
+    if (Error != ERROR_SUCCESS)
+        return Error;
+
+    if (!BasepIsPackageFamilyName(Moniker))
+        return APPMODEL_ERROR_NO_PACKAGE;
+
+    RequiredLength = (UINT32)lstrlenW(Moniker) + 1;
+    if (!packageFamilyName)
+    {
+        if (*packageFamilyNameLength)
+            return ERROR_INVALID_PARAMETER;
+
+        *packageFamilyNameLength = RequiredLength;
+        return ERROR_INSUFFICIENT_BUFFER;
+    }
+
+    if (*packageFamilyNameLength < RequiredLength)
+    {
+        *packageFamilyNameLength = RequiredLength;
+        return ERROR_INSUFFICIENT_BUFFER;
+    }
+
+    CopyMemory(packageFamilyName, Moniker, RequiredLength * sizeof(WCHAR));
+    *packageFamilyNameLength = RequiredLength;
+    return ERROR_SUCCESS;
 }
 
 LONG

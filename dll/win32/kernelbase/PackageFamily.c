@@ -34,8 +34,8 @@ IsPublisherIdCharacter(
     return FALSE;
 }
 
-static BOOL
-IsValidPackageFamilyName(
+BOOL
+BasepIsPackageFamilyName(
     _In_ PCWSTR PackageFamilyName)
 {
     const WCHAR *Current;
@@ -88,7 +88,7 @@ FindPackagesByPackageFamily(
 
     if (!PackageFamilyName || !Count || !BufferLength ||
         (!PackageFullNames && *Count) || (!Buffer && *BufferLength) ||
-        !IsValidPackageFamilyName(PackageFamilyName))
+        !BasepIsPackageFamilyName(PackageFamilyName))
     {
         return ERROR_INVALID_PARAMETER;
     }
@@ -197,7 +197,7 @@ PackageFamilyNameFromFullName(
     CopyMemory(Family + NameLength + 1, Fields[4], Lengths[4] * sizeof(WCHAR));
     Family[NameLength + 1 + Lengths[4]] = UNICODE_NULL;
 
-    if (!IsValidPackageFamilyName(Family))
+    if (!BasepIsPackageFamilyName(Family))
         return ERROR_INVALID_PARAMETER;
 
     if (!packageFamilyName || *packageFamilyNameLength < (UINT32)lstrlenW(Family) + 1)
@@ -241,7 +241,7 @@ ParseApplicationUserModelId(
         return ERROR_INVALID_PARAMETER;
     CopyMemory(Family, applicationUserModelId, FamilyLength * sizeof(WCHAR));
     Family[FamilyLength] = UNICODE_NULL;
-    if (!IsValidPackageFamilyName(Family))
+    if (!BasepIsPackageFamilyName(Family))
         return ERROR_INVALID_PARAMETER;
 
     FamilyRequired = (UINT32)FamilyLength + 1;
