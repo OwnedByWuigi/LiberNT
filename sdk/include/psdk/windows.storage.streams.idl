@@ -50,6 +50,7 @@ namespace Windows.Storage.Streams {
     interface IRandomAccessStreamStatics;
     interface IRandomAccessStreamWithContentType;
     runtimeclass Buffer;
+    runtimeclass DataReader;
     runtimeclass DataReaderLoadOperation;
     runtimeclass DataWriter;
     runtimeclass DataWriterStoreOperation;
