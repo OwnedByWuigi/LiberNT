@@ -22,6 +22,7 @@ struct package_identity
 };
 
 HRESULT package_archive_read_identity(PCWSTR path, struct package_identity *identity);
+HRESULT package_archive_stage(PCWSTR archive_path, PCWSTR stage_path);
 void package_identity_clear(struct package_identity *identity);
 
 #endif
