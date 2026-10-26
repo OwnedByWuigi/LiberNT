@@ -31,7 +31,7 @@ static HRESULT copy_xml_attribute(IXmlReader *reader, PCWSTR wanted_name, WCHAR 
     {
         if (FAILED(hr = IXmlReader_GetLocalName(reader, &name, &name_length)))
             return hr;
-        if (wcslen(wanted_name) == name_length && !_wcsnicmp(name, wanted_name, name_length))
+        if (wcslen(wanted_name) == name_length && !wcsncmp(name, wanted_name, name_length))
         {
             if (FAILED(hr = IXmlReader_GetValue(reader, &text, &text_length)))
                 return hr;
@@ -334,7 +334,8 @@ static HRESULT create_archive_directory(PCWSTR path)
     return S_OK;
 }
 
-HRESULT package_archive_stage(PCWSTR archive_path, PCWSTR stage_path)
+HRESULT package_archive_stage(PCWSTR archive_path, PCWSTR stage_path,
+                              package_is_cancelled_callback is_cancelled, void *context)
 {
     zlib_filefunc64_def file_functions;
     unz_file_info64 info;
@@ -354,7 +355,7 @@ HRESULT package_archive_stage(PCWSTR archive_path, PCWSTR stage_path)
         unzClose(archive);
         return HRESULT_FROM_WIN32(ERROR_BAD_FORMAT);
     }
-    do
+    for (;;)
     {
         char *entry = NULL;
         DWORD entry_length;
@@ -362,6 +363,11 @@ HRESULT package_archive_stage(PCWSTR archive_path, PCWSTR stage_path)
         ZPOS64_T remaining;
         DWORD unix_type;
 
+        if (is_cancelled && is_cancelled(context))
+        {
+            hr = HRESULT_FROM_WIN32(ERROR_CANCELLED);
+            break;
+        }
         if (unzGetCurrentFileInfo64(archive, &info, NULL, 0, NULL, 0, NULL, 0) != UNZ_OK ||
             !info.size_filename || info.size_filename > MAXDWORD - 1 || info.uncompressed_size > MAXLONGLONG)
         {
@@ -396,7 +402,7 @@ HRESULT package_archive_stage(PCWSTR archive_path, PCWSTR stage_path)
             HeapFree(GetProcessHeap(), 0, path);
             path = NULL;
             if (FAILED(hr)) break;
-            continue;
+            goto next_archive_entry;
         }
         unix_type = (info.external_fa >> 16) & 0170000;
         if (unix_type && unix_type != (is_directory ? 0040000 : 0100000))
@@ -433,6 +439,11 @@ HRESULT package_archive_stage(PCWSTR archive_path, PCWSTR stage_path)
             int read = unzReadCurrentFile(archive, buffer, request);
             DWORD output;
 
+            if (is_cancelled && is_cancelled(context))
+            {
+                hr = HRESULT_FROM_WIN32(ERROR_CANCELLED);
+                break;
+            }
             if (read <= 0 || (UINT)read > request || !WriteFile(file, buffer, read, &output, NULL) || output != (DWORD)read)
             {
                 hr = HRESULT_FROM_WIN32(read < 0 ? ERROR_CRC : GetLastError());
@@ -449,7 +460,15 @@ HRESULT package_archive_stage(PCWSTR archive_path, PCWSTR stage_path)
         HeapFree(GetProcessHeap(), 0, path);
         path = NULL;
         if (FAILED(hr)) break;
-    } while (unzGoToNextFile(archive) == UNZ_OK);
+next_archive_entry:
+        result = unzGoToNextFile(archive);
+        if (result == UNZ_END_OF_LIST_OF_FILE) break;
+        if (result != UNZ_OK)
+        {
+            hr = HRESULT_FROM_WIN32(ERROR_BAD_FORMAT);
+            break;
+        }
+    }
     if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
     if (path) HeapFree(GetProcessHeap(), 0, path);
     result = unzClose(archive);
@@ -466,6 +485,7 @@ HRESULT package_archive_read_identity(PCWSTR path, struct package_identity *iden
     XmlNodeType node_type;
     HRESULT hr;
     BOOL found_identity = FALSE;
+    UINT manifest_namespace = 0;
     PACKAGE_ID package_id = {0};
     UINT32 length;
 
@@ -491,6 +511,7 @@ HRESULT package_archive_read_identity(PCWSTR path, struct package_identity *iden
     for (;;)
     {
         const WCHAR *name;
+        const WCHAR *namespace_uri;
         UINT name_length, depth;
 
         hr = IXmlReader_Read(reader, &node_type);
@@ -502,12 +523,52 @@ HRESULT package_archive_read_identity(PCWSTR path, struct package_identity *iden
             continue;
         if (FAILED(hr = IXmlReader_GetDepth(reader, &depth)))
             goto done;
+        if (!depth)
+        {
+            static const WCHAR windows8_namespace[] = L"http://schemas.microsoft.com/appx/2010/manifest";
+            static const WCHAR windows10_namespace[] = L"http://schemas.microsoft.com/appx/manifest/foundation/windows10";
+
+            if (FAILED(hr = IXmlReader_GetLocalName(reader, &name, &name_length)))
+                goto done;
+            if (name_length != ARRAYSIZE(L"Package") - 1 || wcsncmp(name, L"Package", name_length))
+            {
+                hr = HRESULT_FROM_WIN32(ERROR_BAD_FORMAT);
+                goto done;
+            }
+            if (FAILED(hr = IXmlReader_GetNamespaceUri(reader, &namespace_uri, &name_length)))
+                goto done;
+            if (name_length == ARRAYSIZE(windows8_namespace) - 1 &&
+                !wcsncmp(namespace_uri, windows8_namespace, name_length))
+                manifest_namespace = 1;
+            else if (name_length == ARRAYSIZE(windows10_namespace) - 1 &&
+                     !wcsncmp(namespace_uri, windows10_namespace, name_length))
+                manifest_namespace = 2;
+            else
+            {
+                hr = HRESULT_FROM_WIN32(ERROR_BAD_FORMAT);
+                goto done;
+            }
+            continue;
+        }
         if (depth != 1)
             continue;
         if (FAILED(hr = IXmlReader_GetLocalName(reader, &name, &name_length)))
             goto done;
-        if (name_length != ARRAYSIZE(L"Identity") - 1 || _wcsnicmp(name, L"Identity", name_length))
+        if (name_length != ARRAYSIZE(L"Identity") - 1 || wcsncmp(name, L"Identity", name_length))
             continue;
+        if (FAILED(hr = IXmlReader_GetNamespaceUri(reader, &namespace_uri, &name_length)))
+            goto done;
+        if ((manifest_namespace == 1 &&
+             (name_length != ARRAYSIZE(L"http://schemas.microsoft.com/appx/2010/manifest") - 1 ||
+              wcsncmp(namespace_uri, L"http://schemas.microsoft.com/appx/2010/manifest", name_length))) ||
+            (manifest_namespace == 2 &&
+             (name_length != ARRAYSIZE(L"http://schemas.microsoft.com/appx/manifest/foundation/windows10") - 1 ||
+              wcsncmp(namespace_uri, L"http://schemas.microsoft.com/appx/manifest/foundation/windows10", name_length))) ||
+            !manifest_namespace)
+        {
+            hr = HRESULT_FROM_WIN32(ERROR_BAD_FORMAT);
+            goto done;
+        }
         if (found_identity)
         {
             hr = HRESULT_FROM_WIN32(ERROR_BAD_FORMAT);

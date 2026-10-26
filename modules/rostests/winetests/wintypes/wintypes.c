@@ -452,7 +452,8 @@ static void test_IApiInformationStatics(void)
     }
     present_contracts[] =
     {
-        { L"Windows.Foundation.UniversalApiContract", 10, },
+        { L"Windows.Foundation.FoundationContract", 4, },
+        { L"Windows.Foundation.UniversalApiContract", 14, },
     };
 
     static const WCHAR *class_name = L"Windows.Foundation.Metadata.ApiInformation";
@@ -523,6 +524,33 @@ static void test_IApiInformationStatics(void)
     todo_wine
     ok(ret == TRUE, "IsTypePresent returned FALSE.\n");
 
+    WindowsDeleteString(str);
+
+    hr = WindowsCreateString(L"Windows.Foundation.Metadata.ApiInformation",
+            wcslen(L"Windows.Foundation.Metadata.ApiInformation"), &str);
+    ok(hr == S_OK, "WindowsCreateString failed, hr %#lx.\n", hr);
+    ret = FALSE;
+    hr = IApiInformationStatics_IsTypePresent(statics, str, &ret);
+    ok(hr == S_OK, "IsTypePresent failed, hr %#lx.\n", hr);
+    ok(ret == TRUE, "IsTypePresent returned FALSE for ApiInformation.\n");
+    WindowsDeleteString(str);
+
+    hr = WindowsCreateString(L"Windows.Foundation.Uri",
+            wcslen(L"Windows.Foundation.Uri"), &str);
+    ok(hr == S_OK, "WindowsCreateString failed, hr %#lx.\n", hr);
+    ret = FALSE;
+    hr = IApiInformationStatics_IsTypePresent(statics, str, &ret);
+    ok(hr == S_OK, "IsTypePresent failed, hr %#lx.\n", hr);
+    ok(ret == TRUE, "IsTypePresent returned FALSE for Uri.\n");
+    WindowsDeleteString(str);
+
+    hr = WindowsCreateString(L"Windows.Foundation.Metadata.UnknownTypeForTest",
+            wcslen(L"Windows.Foundation.Metadata.UnknownTypeForTest"), &str);
+    ok(hr == S_OK, "WindowsCreateString failed, hr %#lx.\n", hr);
+    ret = TRUE;
+    hr = IApiInformationStatics_IsTypePresent(statics, str, &ret);
+    ok(hr == S_OK, "IsTypePresent failed, hr %#lx.\n", hr);
+    ok(ret == FALSE, "IsTypePresent returned TRUE for unknown type.\n");
     WindowsDeleteString(str);
 
     /* IsMethodPresent() */
@@ -852,7 +880,7 @@ static void test_IApiInformationStatics(void)
         for (j = 0; j <= present_contracts[i].max_major; ++j)
         {
             ret = FALSE;
-            hr = IApiInformationStatics_IsApiContractPresentByMajor(statics, str, i, &ret);
+            hr = IApiInformationStatics_IsApiContractPresentByMajor(statics, str, j, &ret);
             ok(hr == S_OK, "IsApiContractPresentByMajor failed, hr %#lx, i %u, major %u.\n", hr, i, j);
             ok(ret == TRUE, "IsApiContractPresentByMajor returned FALSE, i %u, major %u.\n", i, j);
         }
@@ -1652,18 +1680,30 @@ static void test_DataWriter(void)
     IActivationFactory *factory = (void *)0xdeadbeef;
     IInspectable *inspectable = (void *)0xdeadbeef;
     const UINT64 uint64_value = 0xdeadbeefcafef00d;
+    const UINT16 uint16_value = 0x1234;
     IDataWriterFactory *data_writer_factory = NULL;
     IAsyncOperation_UINT32 *operation;
     IAsyncOperation_boolean *bool_op;
     IInputStream *input_stream;
+    IDataReaderStatics *reader_statics;
+    IDataReader *data_reader;
     IDataWriter *data_writer;
     BYTE byte_value = 0xab;
     IBuffer *buffer;
+    IBuffer *source_buffer;
+    HSTRING string;
+    HSTRING read_string;
     UINT64 value64;
     UINT32 value;
+    UINT32 string_size;
+    UINT16 read_uint16;
+    UnicodeEncoding unicode_encoding;
+    ByteOrder byte_order;
+    InputStreamOptions input_stream_options;
     UINT res, i;
     HRESULT hr;
     BYTE *data;
+    BYTE read_bytes[sizeof(uint64_value)];
     LONG ref;
 
     hr = RoInitialize(RO_INIT_MULTITHREADED);
@@ -1691,7 +1731,15 @@ static void test_DataWriter(void)
     ok(hr == S_OK, "got hr %#lx.\n", hr);
     ok(!output_stream, "got stream %p.\n", output_stream);
 
+    hr = IDataWriter_get_ByteOrder(data_writer, &byte_order);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(byte_order == BigEndian, "got default ByteOrder %u.\n", byte_order);
+    hr = IDataWriter_put_ByteOrder(data_writer, LittleEndian);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+
     hr = IDataWriter_WriteBytes(data_writer, 8, (BYTE *)&uint64_value);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    hr = IDataWriter_WriteUInt16(data_writer, uint16_value);
     ok(hr == S_OK, "got hr %#lx.\n", hr);
 
     hr = IDataWriter_StoreAsync(data_writer, &operation);
@@ -1703,12 +1751,121 @@ static void test_DataWriter(void)
     ok(hr == S_OK, "got hr %#lx.\n", hr);
     hr = IBuffer_get_Length(buffer, &value);
     ok(hr == S_OK, "got hr %#lx.\n", hr);
-    ok(value == 8, "got length %u.\n", value);
+    ok(value == 10, "got length %u.\n", value);
 
     data = buffer_get_data(buffer);
     memcpy(&value64, data, sizeof(value64));
     ok(value64 == uint64_value, "got %I64x.\n", value64);
+    ok(data[8] == 0x34 && data[9] == 0x12, "got bytes %#x, %#x.\n", data[8], data[9]);
 
+    source_buffer = buffer;
+    hr = IDataWriter_WriteBuffer(data_writer, source_buffer);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    hr = IDataWriter_WriteBufferRange(data_writer, source_buffer, 9, 2);
+    ok(hr == E_INVALIDARG, "got hr %#lx.\n", hr);
+    hr = IDataWriter_WriteBufferRange(data_writer, source_buffer, 8, 2);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    hr = WindowsCreateString(L"A\u03a9", 2, &string);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    hr = IDataWriter_get_UnicodeEncoding(data_writer, &unicode_encoding);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(unicode_encoding == Utf8, "got default UnicodeEncoding %u.\n", unicode_encoding);
+    hr = IDataWriter_MeasureString(data_writer, string, &string_size);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(string_size == 3, "got UTF-8 string size %u.\n", string_size);
+    hr = IDataWriter_WriteString(data_writer, string, &string_size);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(string_size == 3, "got written UTF-8 string size %u.\n", string_size);
+    hr = IDataWriter_put_UnicodeEncoding(data_writer, Utf16BE);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    hr = IDataWriter_get_UnicodeEncoding(data_writer, &unicode_encoding);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(unicode_encoding == Utf16BE, "got UnicodeEncoding %u.\n", unicode_encoding);
+    hr = IDataWriter_MeasureString(data_writer, string, &string_size);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(string_size == 2, "got string size %u.\n", string_size);
+    hr = IDataWriter_WriteString(data_writer, string, &string_size);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(string_size == 2, "got written string size %u.\n", string_size);
+    WindowsDeleteString(string);
+    hr = IDataWriter_put_ByteOrder(data_writer, BigEndian);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    hr = IDataWriter_get_ByteOrder(data_writer, &byte_order);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(byte_order == BigEndian, "got ByteOrder %u.\n", byte_order);
+    hr = IDataWriter_WriteUInt16(data_writer, uint16_value);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    hr = IDataWriter_get_UnstoredBufferLength(data_writer, &value);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(value == 21, "got unstored buffer length %u.\n", value);
+    hr = IDataWriter_DetachBuffer(data_writer, &buffer);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    hr = IBuffer_get_Length(buffer, &value);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(value == 21, "got length %u.\n", value);
+    data = buffer_get_data(buffer);
+    ok(!memcmp(data, &uint64_value, sizeof(uint64_value)), "got unexpected copied bytes.\n");
+    ok(data[8] == 0x34 && data[9] == 0x12, "got bytes %#x, %#x.\n", data[8], data[9]);
+    ok(data[10] == 0x34 && data[11] == 0x12, "got bytes %#x, %#x.\n", data[10], data[11]);
+    ok(data[12] == 0x41 && data[13] == 0xce && data[14] == 0xa9,
+            "got UTF-8 bytes %#x, %#x, %#x.\n", data[12], data[13], data[14]);
+    ok(data[15] == 0x00 && data[16] == 0x41 && data[17] == 0x03 && data[18] == 0xa9,
+            "got UTF-16BE bytes %#x, %#x, %#x, %#x.\n", data[15], data[16], data[17], data[18]);
+    ok(data[19] == 0x12 && data[20] == 0x34, "got integer bytes %#x, %#x.\n", data[19], data[20]);
+
+    get_activation_factory(L"Windows.Storage.Streams.DataReader", &factory);
+    hr = IActivationFactory_QueryInterface(factory, &IID_IDataReaderStatics, (void **)&reader_statics);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    hr = IDataReaderStatics_FromBuffer(reader_statics, buffer, &data_reader);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    hr = IDataReader_get_UnconsumedBufferLength(data_reader, &value);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(value == 21, "got unconsumed buffer length %u.\n", value);
+    hr = IDataReader_get_ByteOrder(data_reader, &byte_order);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(byte_order == BigEndian, "got default ByteOrder %u.\n", byte_order);
+    hr = IDataReader_get_UnicodeEncoding(data_reader, &unicode_encoding);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(unicode_encoding == Utf8, "got default UnicodeEncoding %u.\n", unicode_encoding);
+    hr = IDataReader_get_InputStreamOptions(data_reader, &input_stream_options);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(input_stream_options == None, "got default InputStreamOptions %u.\n", input_stream_options);
+    hr = IDataReader_ReadBytes(data_reader, sizeof(read_bytes), read_bytes);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(!memcmp(read_bytes, &uint64_value, sizeof(uint64_value)), "got unexpected read bytes.\n");
+    hr = IDataReader_put_ByteOrder(data_reader, LittleEndian);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    hr = IDataReader_ReadUInt16(data_reader, &read_uint16);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(read_uint16 == uint16_value, "got uint16 %#x.\n", read_uint16);
+    hr = IDataReader_ReadUInt16(data_reader, &read_uint16);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(read_uint16 == uint16_value, "got ranged uint16 %#x.\n", read_uint16);
+    hr = IDataReader_ReadString(data_reader, 3, &read_string);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(WindowsGetStringLen(read_string) == 2 && !lstrcmpW(WindowsGetStringRawBuffer(read_string, NULL), L"A\u03a9"),
+            "got unexpected UTF-8 string.\n");
+    WindowsDeleteString(read_string);
+    hr = IDataReader_put_UnicodeEncoding(data_reader, Utf16BE);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    hr = IDataReader_ReadString(data_reader, 2, &read_string);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(WindowsGetStringLen(read_string) == 2 && !lstrcmpW(WindowsGetStringRawBuffer(read_string, NULL), L"A\u03a9"),
+            "got unexpected UTF-16BE string.\n");
+    WindowsDeleteString(read_string);
+    hr = IDataReader_put_ByteOrder(data_reader, BigEndian);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    hr = IDataReader_ReadUInt16(data_reader, &read_uint16);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(read_uint16 == uint16_value, "got big-endian uint16 %#x.\n", read_uint16);
+    hr = IDataReader_get_UnconsumedBufferLength(data_reader, &value);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(value == 0, "got unconsumed buffer length %u.\n", value);
+    IDataReader_Release(data_reader);
+    IDataReaderStatics_Release(reader_statics);
+    IActivationFactory_Release(factory);
+
+    IBuffer_Release(source_buffer);
     IBuffer_Release(buffer);
 
     ref = IDataWriter_Release(data_writer);

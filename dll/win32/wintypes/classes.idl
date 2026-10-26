@@ -39,5 +39,7 @@ namespace Windows.Foundation.Metadata {
 }
 namespace Windows.Storage.Streams {
     runtimeclass Buffer;
+    runtimeclass DataReader;
+    runtimeclass DataReaderLoadOperation;
     runtimeclass DataWriter;
 }

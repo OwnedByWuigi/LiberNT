@@ -30,5 +30,8 @@
 HRESULT get_iids(REFIID iid, ULONG *count, IID **iids);
 HRESULT trust_level(TrustLevel *level);
 HRESULT package_manager_create(IInspectable **instance);
+HRESULT deployment_operation_add_package(IUriRuntimeClass *uri, IIterable_Uri *dependencies,
+                                         DeploymentOptions options,
+                                         IAsyncOperationWithProgress_DeploymentResult_DeploymentProgress **operation);
 
 #endif

@@ -18,6 +18,7 @@
 
 #include "initguid.h"
 #include "private.h"
+#include "roapi.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(wintypes);
 
@@ -28,7 +29,8 @@ static const struct
 }
 present_contracts[] =
 {
-    { L"Windows.Foundation.UniversalApiContract", 10, },
+    { L"Windows.Foundation.FoundationContract", 4, },
+    { L"Windows.Foundation.UniversalApiContract", 14, },
 };
 
 static BOOLEAN is_api_contract_present( const HSTRING hname, unsigned int version )
@@ -38,6 +40,16 @@ static BOOLEAN is_api_contract_present( const HSTRING hname, unsigned int versio
 
     for (i = 0; i < ARRAY_SIZE(present_contracts); ++i)
         if (!wcsicmp( name, present_contracts[i].name )) return version <= present_contracts[i].max_major;
+
+    return FALSE;
+}
+
+static BOOL is_api_contract_type(const WCHAR *name)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(present_contracts); ++i)
+        if (!wcsicmp(name, present_contracts[i].name)) return TRUE;
 
     return FALSE;
 }
@@ -145,12 +157,28 @@ DEFINE_IINSPECTABLE(api_information_statics, IApiInformationStatics, struct api_
 static HRESULT STDMETHODCALLTYPE api_information_statics_IsTypePresent(
         IApiInformationStatics *iface, HSTRING type_name, BOOLEAN *value)
 {
-    FIXME("iface %p, type_name %s, value %p stub!\n", iface, debugstr_hstring(type_name), value);
+    IActivationFactory *factory = NULL;
+    HRESULT hr;
 
-    if (!type_name)
+    TRACE("iface %p, type_name %s, value %p.\n", iface, debugstr_hstring(type_name), value);
+
+    if (!type_name || !value)
         return E_INVALIDARG;
 
-    return E_NOTIMPL;
+    *value = is_api_contract_type(WindowsGetStringRawBuffer(type_name, NULL));
+    if (*value) return S_OK;
+
+    hr = RoGetActivationFactory(type_name, &IID_IActivationFactory, (void **)&factory);
+    if (SUCCEEDED(hr))
+    {
+        IActivationFactory_Release(factory);
+        *value = TRUE;
+        return S_OK;
+    }
+    if (hr == REGDB_E_CLASSNOTREG || hr == CLASS_E_CLASSNOTAVAILABLE ||
+        hr == RO_E_METADATA_NAME_NOT_FOUND || hr == RO_E_METADATA_NAME_IS_NAMESPACE)
+        return S_OK;
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE api_information_statics_IsMethodPresent(
@@ -258,13 +286,14 @@ static HRESULT STDMETHODCALLTYPE api_information_statics_IsApiContractPresentByM
         IApiInformationStatics *iface, HSTRING contract_name, UINT16 major_version,
         UINT16 minor_version, BOOLEAN *value)
 {
-    FIXME("iface %p, contract_name %s, major_version %u, minor_version %u, value %p stub!\n", iface,
+    TRACE("iface %p, contract_name %s, major_version %u, minor_version %u, value %p.\n", iface,
             debugstr_hstring(contract_name), major_version, minor_version, value);
 
     if (!contract_name)
         return E_INVALIDARG;
 
-    return E_NOTIMPL;
+    *value = is_api_contract_present(contract_name, major_version);
+    return S_OK;
 }
 
 static const struct IApiInformationStaticsVtbl api_information_statics_vtbl =
@@ -1802,6 +1831,8 @@ HRESULT WINAPI DllGetActivationFactory(HSTRING classid, IActivationFactory **fac
 #endif
     if (!wcscmp(buffer, L"Windows.Storage.Streams.Buffer"))
         IActivationFactory_AddRef((*factory = buffer_activation_factory));
+    if (!wcscmp(buffer, L"Windows.Storage.Streams.DataReader"))
+        IActivationFactory_AddRef((*factory = data_reader_activation_factory));
     if (!wcscmp(buffer, L"Windows.Storage.Streams.DataWriter"))
         IActivationFactory_AddRef((*factory = data_writer_activation_factory));
 

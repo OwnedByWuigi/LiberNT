@@ -21,8 +21,11 @@ struct package_identity
     WCHAR *resource_id;
 };
 
+typedef BOOL (WINAPI *package_is_cancelled_callback)(void *context);
+
 HRESULT package_archive_read_identity(PCWSTR path, struct package_identity *identity);
-HRESULT package_archive_stage(PCWSTR archive_path, PCWSTR stage_path);
+HRESULT package_archive_stage(PCWSTR archive_path, PCWSTR stage_path,
+                              package_is_cancelled_callback is_cancelled, void *context);
 void package_identity_clear(struct package_identity *identity);
 
 #endif

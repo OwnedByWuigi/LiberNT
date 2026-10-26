@@ -10,6 +10,7 @@
 
 #include "package_reader.h"
 
-HRESULT package_archive_verify_signature(PCWSTR path, const struct package_identity *identity);
+HRESULT package_archive_verify_signature(PCWSTR path, const struct package_identity *identity,
+                                         package_is_cancelled_callback is_cancelled, void *context);
 
 #endif

@@ -2,8 +2,12 @@ spec2def(windows.management.deployment.dll windows.management.deployment.spec)
 
 list(APPEND SOURCE
     main.c
+    async.c
     package_reader.c
     package_trust.c
+    package_store.c
+    package_result.c
+    package_transaction.c
     package_manager.c
     private.h)
 
@@ -19,7 +23,7 @@ add_idl_reg_scripts(windows_management_deployment winrt classes.idl)
 set_module_type(windows_management_deployment win32dll)
 target_compile_definitions(windows_management_deployment PRIVATE __WINESRC__)
 target_link_libraries(windows_management_deployment minizip zlib uuid wine wine_dll_canunload wine_dll_register)
-add_importlibs(windows_management_deployment bcrypt crypt32 xmllite combase ole32 kernelbase msvcrt kernel32 ntdll)
+add_importlibs(windows_management_deployment advapi32 bcrypt crypt32 shlwapi xmllite combase ole32 kernelbase msvcrt kernel32 ntdll)
 add_dependencies(windows_management_deployment psdk)
 add_cd_file(TARGET windows_management_deployment DESTINATION reactos/system32 FOR all)
 set_wine_module_FIXME(windows_management_deployment)

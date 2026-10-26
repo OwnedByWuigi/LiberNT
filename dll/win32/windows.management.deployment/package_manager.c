@@ -85,9 +85,12 @@ static HRESULT WINAPI manager_GetTrustLevel(IPackageManager *iface, TrustLevel *
 #define PACKAGE_MANAGER_UNSUPPORTED(name, signature, output) \
     static HRESULT WINAPI name signature { if (!(output)) return E_POINTER; *(output) = NULL; return E_NOTIMPL; }
 
-PACKAGE_MANAGER_UNSUPPORTED(manager_AddPackageAsync,
-    (IPackageManager *iface, IUriRuntimeClass *uri, IIterable_Uri *dependencies, DeploymentOptions options,
-     IAsyncOperationWithProgress_DeploymentResult_DeploymentProgress **operation), operation)
+static HRESULT WINAPI manager_AddPackageAsync(IPackageManager *iface, IUriRuntimeClass *uri,
+        IIterable_Uri *dependencies, DeploymentOptions options,
+        IAsyncOperationWithProgress_DeploymentResult_DeploymentProgress **operation)
+{
+    return deployment_operation_add_package(uri, dependencies, options, operation);
+}
 PACKAGE_MANAGER_UNSUPPORTED(manager_UpdatePackageAsync,
     (IPackageManager *iface, IUriRuntimeClass *uri, IIterable_Uri *dependencies, DeploymentOptions options,
      IAsyncOperationWithProgress_DeploymentResult_DeploymentProgress **operation), operation)

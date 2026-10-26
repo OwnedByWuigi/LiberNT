@@ -51,6 +51,7 @@ extern HRESULT single_threaded_map_create( const struct map_iids *iids, IInspect
 extern HRESULT multi_threaded_map_create( const struct map_iids *iids, IInspectable *outer, IInspectable **out );
 
 extern IActivationFactory *data_writer_activation_factory;
+extern IActivationFactory *data_reader_activation_factory;
 extern IActivationFactory *buffer_activation_factory;
 extern IActivationFactory *property_set_factory;
 #ifdef __REACTOS__
