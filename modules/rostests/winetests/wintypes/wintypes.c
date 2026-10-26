@@ -1861,6 +1861,11 @@ static void test_DataWriter(void)
     hr = IDataReader_get_UnconsumedBufferLength(data_reader, &value);
     ok(hr == S_OK, "got hr %#lx.\n", hr);
     ok(value == 0, "got unconsumed buffer length %u.\n", value);
+    hr = IDataReader_ReadByte(data_reader, &byte_value);
+    ok(hr == E_BOUNDS, "got hr %#lx.\n", hr);
+    hr = IDataReader_get_UnconsumedBufferLength(data_reader, &value);
+    ok(hr == S_OK, "got hr %#lx.\n", hr);
+    ok(value == 0, "got unconsumed buffer length %u.\n", value);
     IDataReader_Release(data_reader);
     IDataReaderStatics_Release(reader_statics);
     IActivationFactory_Release(factory);
