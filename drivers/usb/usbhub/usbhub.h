@@ -128,8 +128,10 @@ BOOLEAN
 USBH_PortStatusIsConnected(
     _In_ const USB_PORT_STATUS_AND_CHANGE *PortStatus)
 {
-    return (PortStatus->PortStatus.Usb20PortStatus.CurrentConnectStatus != 0) ||
-           (PortStatus->PortStatus.Usb30PortStatus.CurrentConnectStatus != 0);
+    return !(PortStatus->PortStatus.Usb20PortStatus.Reserved1 &
+             USB20_PORT_STATUS_RESERVED1_OWNED_BY_COMPANION) &&
+           ((PortStatus->PortStatus.Usb20PortStatus.CurrentConnectStatus != 0) ||
+            (PortStatus->PortStatus.Usb30PortStatus.CurrentConnectStatus != 0));
 }
 
 FORCEINLINE
