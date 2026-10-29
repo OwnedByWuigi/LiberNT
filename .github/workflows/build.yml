@@ -42,6 +42,10 @@ jobs:
             arch: ppc
             config: Debug
             ntver: '0xA00'
+          - compiler: clang
+            arch: loongarch64
+            config: Debug
+            ntver: '0xA00'
       fail-fast: false
     runs-on: ubuntu-24.04
     steps:
