@@ -81,6 +81,28 @@ jobs:
       if: ${{ steps.cache_rosbe.outputs.cache-hit != 'true' }}
       run: sh /tmp/rosbe-bootstrap.sh
 
+    - name: Install LoongArch LLVM
+      if: ${{ matrix.arch == 'loongarch64' }}
+      run: |
+        archive="$RUNNER_TEMP/llvm-la64test1.tar.gz"
+        extracted="$RUNNER_TEMP/llvm-la64test1"
+        curl -fsSL https://github.com/OwnedByWuigi/llvm-project/releases/download/la64test1/llvm.tar.gz -o "$archive"
+        mkdir -p "$extracted"
+        tar -xzf "$archive" -C "$extracted"
+        clang_path=$(find "$extracted" -path '*/bin/clang' -print -quit)
+        if [ -z "$clang_path" ]; then
+          echo "LLVM archive does not contain bin/clang" >&2
+          exit 1
+        fi
+        llvm_root=${clang_path%/bin/clang}
+        for tool in clang clang++ ld.lld llvm-ar llvm-windres llvm-dlltool llvm-strip llvm-objcopy; do
+          if [ ! -x "$llvm_root/bin/$tool" ]; then
+            echo "LLVM archive is missing bin/$tool" >&2
+            exit 1
+          fi
+        done
+        cp -a "$llvm_root/." "$HOME/.local/opt/rosbe/llvm/"
+
     - name: Restore ccache
       id: ccache_restore
       uses: actions/cache/restore@v5
