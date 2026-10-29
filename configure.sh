@@ -69,7 +69,7 @@ usage() {
 	echo "Usage: configure.sh [options]"
 	echo "  --clang              Use RosBE Clang/LLVM from ~/.local/opt/rosbe/llvm"
 	echo "  --gcc                Use GCC from ~/.local/opt/rosbe/mingw-gcc"
-	echo "  -a, --arch <arch>    Target architecture: amd64, i386, arm64, riscv64, ppc (default: amd64)"
+	echo "  -a, --arch <arch>    Target architecture: amd64, i386, arm64, riscv64, loongarch64, ppc (default: amd64)"
 	echo "  -r, --release        Configure a Release build (default: Debug)"
 	echo "  makefiles            Use Unix Makefiles generator (default: Ninja)"
 	echo "  menuconfig           Open the interactive configuration UI first;"
@@ -324,6 +324,9 @@ normalize_arch() {
 		arm64|aarch64)
 			echo arm64
 			;;
+		loongarch64|loong64)
+			echo loongarch64
+			;;
 		riscv64|rv64)
 			echo riscv64
 			;;
@@ -442,7 +445,7 @@ if [ "$REACTOS_START_DIR" != "$REACTOS_SOURCE_DIR" ]; then
 		CACHED_ARCH=$(cmake_cache_get "$CURRENT_CMAKE_CACHE" ARCH)
 		[ -n "$CACHED_ARCH" ] || CACHED_ARCH=$(rosconfig_file_get "$CURRENT_ROSCONFIG_CACHE" ARCH)
 		case "$CACHED_ARCH" in
-			amd64|i386|arm64|arm|riscv64|ppc) ARCH=$CACHED_ARCH ;;
+			amd64|i386|arm64|arm|riscv64|loongarch64|ppc) ARCH=$CACHED_ARCH ;;
 		esac
 	fi
 	if [ "$USER_TOOLCHAIN" = "0" ]; then
@@ -539,7 +542,7 @@ if [ "$RUN_MENUCONFIG" = "1" ]; then
 		ARCH=$(rosconfig_file_get "$ROSCONFIG_MENU_CACHE" ARCH)
 	fi
 	case "$ARCH" in
-		amd64|i386|arm64|arm|riscv64|ppc) ;;
+		amd64|i386|arm64|arm|riscv64|loongarch64|ppc) ;;
 		*) fail "menuconfig selected an unsupported architecture: $ARCH" ;;
 	esac
 
