@@ -277,9 +277,15 @@ set(CMAKE_C_CREATE_SHARED_MODULE ${CMAKE_C_CREATE_SHARED_LIBRARY})
 set(CMAKE_CXX_CREATE_SHARED_MODULE ${CMAKE_CXX_CREATE_SHARED_LIBRARY})
 set(CMAKE_RC_CREATE_SHARED_MODULE ${CMAKE_RC_CREATE_SHARED_LIBRARY})
 
-set(CMAKE_EXE_LINKER_FLAGS "${REACTOS_CLANG_BASE_LINKER_FLAGS} -Wl,--disable-stdcall-fixup,--gc-sections")
-set(CMAKE_SHARED_LINKER_FLAGS "${REACTOS_CLANG_BASE_LINKER_FLAGS} -Wl,--disable-stdcall-fixup")
-set(CMAKE_MODULE_LINKER_FLAGS "${REACTOS_CLANG_BASE_LINKER_FLAGS} -Wl,--disable-stdcall-fixup")
+if(ARCH STREQUAL "loongarch64")
+    set(CMAKE_EXE_LINKER_FLAGS "${REACTOS_CLANG_BASE_LINKER_FLAGS} -Wl,--gc-sections")
+    set(CMAKE_SHARED_LINKER_FLAGS "${REACTOS_CLANG_BASE_LINKER_FLAGS}")
+    set(CMAKE_MODULE_LINKER_FLAGS "${REACTOS_CLANG_BASE_LINKER_FLAGS}")
+else()
+    set(CMAKE_EXE_LINKER_FLAGS "${REACTOS_CLANG_BASE_LINKER_FLAGS} -Wl,--disable-stdcall-fixup,--gc-sections")
+    set(CMAKE_SHARED_LINKER_FLAGS "${REACTOS_CLANG_BASE_LINKER_FLAGS} -Wl,--disable-stdcall-fixup")
+    set(CMAKE_MODULE_LINKER_FLAGS "${REACTOS_CLANG_BASE_LINKER_FLAGS} -Wl,--disable-stdcall-fixup")
+endif()
 
 set(CMAKE_C_COMPILE_OBJECT "<CMAKE_C_COMPILER> <DEFINES> ${_compress_debug_sections_flag} ${CLANG_RESOURCE_INCLUDE_FLAG} <INCLUDES> <FLAGS> -o <OBJECT> -c <SOURCE>")
 set(_reactos_cppstl_pre_include_flags "")
@@ -303,6 +309,10 @@ set(CMAKE_DEPFILE_FLAGS_RC "--preprocessor=\"${CMAKE_C_COMPILER}\" ${RC_PREPROCE
 
 # Optional 3rd parameter: stdcall stack bytes
 function(set_entrypoint MODULE ENTRYPOINT)
+    if(ARCH STREQUAL "loongarch64")
+        set_property(TARGET ${MODULE} PROPERTY LOONGARCH_PE_ENTRYPOINT "${ENTRYPOINT}")
+        return()
+    endif()
     if(${ENTRYPOINT} STREQUAL "0")
         target_link_options(${MODULE} PRIVATE "-Wl,--entry=" "-Wl,-Xlink=/noentry" "-Wl,-Xlink=/dll")
     elseif(ARCH STREQUAL "i386")
@@ -317,6 +327,27 @@ function(set_entrypoint MODULE ENTRYPOINT)
 endfunction()
 
 function(set_subsystem MODULE SUBSYSTEM)
+    if(ARCH STREQUAL "loongarch64")
+        if(SUBSYSTEM STREQUAL "native")
+            set(_loongarch_subsystem 1)
+        elseif(SUBSYSTEM STREQUAL "windows")
+            set(_loongarch_subsystem 2)
+        elseif(SUBSYSTEM STREQUAL "console")
+            set(_loongarch_subsystem 3)
+        elseif(SUBSYSTEM STREQUAL "posix")
+            set(_loongarch_subsystem 7)
+        elseif(SUBSYSTEM STREQUAL "boot")
+            set(_loongarch_subsystem 16)
+        elseif(SUBSYSTEM STREQUAL "EFI_APPLICATION" OR SUBSYSTEM STREQUAL "efi_application")
+            set(_loongarch_subsystem 10)
+        elseif(SUBSYSTEM MATCHES "^[0-9]+$")
+            set(_loongarch_subsystem ${SUBSYSTEM})
+        else()
+            message(FATAL_ERROR "Unsupported LoongArch PE subsystem: ${SUBSYSTEM}")
+        endif()
+        set_property(TARGET ${MODULE} PROPERTY LOONGARCH_PE_SUBSYSTEM "${_loongarch_subsystem}")
+        return()
+    endif()
     if(ARCH STREQUAL "amd64")
         set(_subsystem_version "5.02")
     elseif(ARCH STREQUAL "arm" OR ARCH STREQUAL "arm64" OR ARCH STREQUAL "riscv64" OR ARCH STREQUAL "ppc")
@@ -328,13 +359,48 @@ function(set_subsystem MODULE SUBSYSTEM)
 endfunction()
 
 function(set_image_base MODULE IMAGE_BASE)
+    if(ARCH STREQUAL "loongarch64")
+        set_property(TARGET ${MODULE} PROPERTY LOONGARCH_PE_IMAGE_BASE "${IMAGE_BASE}")
+        return()
+    endif()
     target_link_options(${MODULE} PRIVATE "-Wl,--image-base,${IMAGE_BASE}")
 endfunction()
 
 function(set_module_type_toolchain MODULE TYPE)
+    if(ARCH STREQUAL "loongarch64")
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        get_target_property(_loongarch_target_type ${MODULE} TYPE)
+        set(_loongarch_convert_args)
+        if(_loongarch_target_type STREQUAL "MODULE_LIBRARY" OR _loongarch_target_type STREQUAL "SHARED_LIBRARY")
+            list(APPEND _loongarch_convert_args --dll)
+        endif()
+        get_target_property(_loongarch_entry ${MODULE} LOONGARCH_PE_ENTRYPOINT)
+        if(_loongarch_entry AND NOT _loongarch_entry STREQUAL "_loongarch_entry-NOTFOUND")
+            list(APPEND _loongarch_convert_args --entry "${_loongarch_entry}")
+        endif()
+        get_target_property(_loongarch_subsystem ${MODULE} LOONGARCH_PE_SUBSYSTEM)
+        if(_loongarch_subsystem AND NOT _loongarch_subsystem STREQUAL "_loongarch_subsystem-NOTFOUND")
+            list(APPEND _loongarch_convert_args --subsystem "${_loongarch_subsystem}")
+        endif()
+        get_target_property(_loongarch_image_base ${MODULE} LOONGARCH_PE_IMAGE_BASE)
+        if(_loongarch_image_base AND NOT _loongarch_image_base STREQUAL "_loongarch_image_base-NOTFOUND")
+            list(APPEND _loongarch_convert_args --image-base "${_loongarch_image_base}")
+        endif()
+        set(_loongarch_elf "$<TARGET_FILE:${MODULE}>.elf")
+        add_custom_command(TARGET ${MODULE} POST_BUILD
+            COMMAND ${Python3_EXECUTABLE} ${REACTOS_SOURCE_DIR}/sdk/tools/loongarch_elf_to_pe.py
+                $<TARGET_FILE:${MODULE}> ${_loongarch_elf} ${_loongarch_convert_args}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_loongarch_elf} $<TARGET_FILE:${MODULE}>
+            COMMAND ${CMAKE_COMMAND} -E rm -f ${_loongarch_elf}
+            VERBATIM)
+        set(TYPE "")
+    endif()
+
     # Set the PE image version numbers from the NT OS version ReactOS is based on
-    target_link_options(${MODULE} PRIVATE
-        -Wl,--major-image-version,${_NT_MAJOR} -Wl,--minor-image-version,0${_NT_MINOR} -Wl,--major-os-version,${_NT_MAJOR} -Wl,--minor-os-version,0${_NT_MINOR})
+    if(NOT ARCH STREQUAL "loongarch64")
+        target_link_options(${MODULE} PRIVATE
+            -Wl,--major-image-version,${_NT_MAJOR} -Wl,--minor-image-version,0${_NT_MINOR} -Wl,--major-os-version,${_NT_MAJOR} -Wl,--minor-os-version,0${_NT_MINOR})
+    endif()
 
     if(ARM64EC_RUNTIME AND NOT TYPE IN_LIST KERNEL_MODULE_TYPES)
         add_arm64ec_chpe_support(${MODULE})
@@ -356,14 +422,16 @@ function(set_module_type_toolchain MODULE TYPE)
     # statically linked (it captures the caller's frame, so a DLL export won't work).
     target_link_libraries(${MODULE} setjmp)
 
-    if(TYPE IN_LIST KERNEL_MODULE_TYPES)
+    if(TYPE AND TYPE IN_LIST KERNEL_MODULE_TYPES)
         if(${TYPE} STREQUAL "kmdfdriver")
             set(TYPE "wdmdriver")
         endif()
 
-        target_link_options(${MODULE} PRIVATE
-            -Wl,--exclude-all-symbols,-file-alignment=0x1000,-section-alignment=0x1000
-            -Wl,/driver)
+        if(NOT ARCH STREQUAL "loongarch64")
+            target_link_options(${MODULE} PRIVATE
+                -Wl,--exclude-all-symbols,-file-alignment=0x1000,-section-alignment=0x1000
+                -Wl,/driver)
+        endif()
 
         # LLD accepts the MSVC-style /driver option, but it does not support
         # the older --wdmdriver spelling. pefixup still performs the section
@@ -372,17 +440,21 @@ function(set_module_type_toolchain MODULE TYPE)
         # Place INIT &.rsrc section at the tail of the module, before .reloc
         add_linker_script(${MODULE} ${REACTOS_SOURCE_DIR}/sdk/cmake/init-section.lds)
 
-        add_custom_command(TARGET ${MODULE} POST_BUILD
-            COMMAND native-pefixup --${TYPE} $<TARGET_FILE:${MODULE}>)
-
-        set_property(TARGET ${MODULE} APPEND PROPERTY LINK_DEPENDS $<TARGET_PROPERTY:native-pefixup,IMPORTED_LOCATION>)
-    else()
-        get_target_property(_target_type ${MODULE} TYPE)
-        if(_target_type STREQUAL "MODULE_LIBRARY" OR _target_type STREQUAL "SHARED_LIBRARY" OR _target_type STREQUAL "EXECUTABLE")
+        if(NOT ARCH STREQUAL "loongarch64")
             add_custom_command(TARGET ${MODULE} POST_BUILD
-                COMMAND native-pefixup --checksum $<TARGET_FILE:${MODULE}>)
+                COMMAND native-pefixup --${TYPE} $<TARGET_FILE:${MODULE}>)
 
             set_property(TARGET ${MODULE} APPEND PROPERTY LINK_DEPENDS $<TARGET_PROPERTY:native-pefixup,IMPORTED_LOCATION>)
+        endif()
+    elseif(TYPE)
+        get_target_property(_target_type ${MODULE} TYPE)
+        if(_target_type STREQUAL "MODULE_LIBRARY" OR _target_type STREQUAL "SHARED_LIBRARY" OR _target_type STREQUAL "EXECUTABLE")
+            if(NOT ARCH STREQUAL "loongarch64")
+                add_custom_command(TARGET ${MODULE} POST_BUILD
+                    COMMAND native-pefixup --checksum $<TARGET_FILE:${MODULE}>)
+
+                set_property(TARGET ${MODULE} APPEND PROPERTY LINK_DEPENDS $<TARGET_PROPERTY:native-pefixup,IMPORTED_LOCATION>)
+            endif()
         endif()
     endif()
 endfunction()
