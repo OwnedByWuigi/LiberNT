@@ -20,6 +20,7 @@ TARGETS = {
     ('arm', False): ('arm-w64-mingw32', 'arm', 'arm', '', []),
     ('riscv64', False): ('riscv64-w64-mingw32', 'riscv64', 'riscv64',
                          '-march=rv64gc -mabi=lp64 -mcmodel=medany -mno-relax', []),
+    ('loongarch64', False): ('loongarch64-unknown-linux-gnu', 'loongarch64', 'loongarch64', '', []),
     ('ppc', False): ('powerpcle-w64-mingw32', 'ppc', 'powerpcle', '-mcpu=604 -D_PPC_',
                      ['-DCOMPILER_RT_EXCLUDE_ATOMIC_BUILTIN=OFF']),
 }
@@ -97,7 +98,16 @@ def main():
     runtime = build / f'{arch}-cxx-build'
     runtime.mkdir(parents=True, exist_ok=True)
     exe = '.exe' if os.name == 'nt' else ''
-    clang = toolchain / 'bin' / f'clang{exe}'
+    if arch == 'loongarch64':
+        clang = Path(cache['CMAKE_C_COMPILER'])
+        clangxx = Path(cache['CMAKE_CXX_COMPILER'])
+        llvm_ar = Path(cache['CMAKE_AR'])
+        llvm_ranlib = Path(cache.get('CMAKE_RANLIB') or cache['CMAKE_AR'].replace('llvm-ar', 'llvm-ranlib'))
+    else:
+        clang = toolchain / 'bin' / f'clang{exe}'
+        clangxx = toolchain / 'bin' / f'clang++{exe}'
+        llvm_ar = toolchain / 'bin' / f'llvm-ar{exe}'
+        llvm_ranlib = toolchain / 'bin' / f'llvm-ranlib{exe}'
     resource = Path(subprocess.check_output([str(clang), '-print-resource-dir'], text=True).strip())
     for path in [llvm / 'runtimes/CMakeLists.txt', llvm / 'libcxxabi/include/cxxabi.h',
                  llvm / 'libunwind/src/Unwind-seh.cpp', llvm / 'compiler-rt/lib/builtins/CMakeLists.txt']:
@@ -114,11 +124,11 @@ def main():
     flags += ' '.join('-isystem ' + cmake_string(path) for path in includes)
     config = ['set(CMAKE_SYSTEM_NAME Windows)', f'set(CMAKE_SYSTEM_PROCESSOR {processor})',
               'set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)']
-    for language, compiler in [('C', 'clang'), ('CXX', 'clang++'), ('ASM', 'clang')]:
-        config += [f'set(CMAKE_{language}_COMPILER {cmake_string(toolchain / "bin" / (compiler + exe))})',
+    for language, compiler in [('C', clang), ('CXX', clangxx), ('ASM', clang)]:
+        config += [f'set(CMAKE_{language}_COMPILER {cmake_string(compiler)})',
                    f'set(CMAKE_{language}_COMPILER_TARGET {triple})']
-    for name, executable in [('AR', 'llvm-ar'), ('RANLIB', 'llvm-ranlib')]:
-        config += [f'set(CMAKE_{name} {cmake_string(toolchain / "bin" / (executable + exe))})']
+    for name, executable in [('AR', llvm_ar), ('RANLIB', llvm_ranlib)]:
+        config += [f'set(CMAKE_{name} {cmake_string(executable)})']
     for language in ['C', 'CXX']:
         config += [f'set(CMAKE_{language}_FLAGS_INIT {cmake_string(flags)})',
                    f'set(CMAKE_{language}_STANDARD_LIBRARIES "" CACHE STRING "" FORCE)']

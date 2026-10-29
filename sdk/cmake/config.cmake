@@ -44,6 +44,9 @@ elseif(ARCH STREQUAL "riscv64")
     set(OARCH "rv64gc" CACHE STRING
     "Generate instructions for this ISA string or profile. Specify one of:
      rv64gc rva22u64 rva23u64")
+elseif(ARCH STREQUAL "loongarch64")
+    set(OARCH "loongarch64" CACHE STRING
+    "Generate instructions for the generic LoongArch 64-bit processor.")
 endif()
 
 if(ARCH STREQUAL "i386" OR ARCH STREQUAL "amd64")
@@ -52,7 +55,7 @@ if(ARCH STREQUAL "i386" OR ARCH STREQUAL "amd64")
 elseif(ARCH STREQUAL "arm")
     set(TUNE "generic-armv7-a" CACHE STRING
     "Which CPU ReactOS should be optimized for.")
-elseif(ARCH STREQUAL "arm64" OR ARCH STREQUAL "riscv64")
+elseif(ARCH STREQUAL "arm64" OR ARCH STREQUAL "riscv64" OR ARCH STREQUAL "loongarch64")
     set(TUNE "generic" CACHE STRING
     "Which CPU ReactOS should be optimized for.")
 endif()
