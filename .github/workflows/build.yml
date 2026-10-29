@@ -95,13 +95,12 @@ jobs:
           exit 1
         fi
         llvm_root=${clang_path%/bin/clang}
-        for tool in clang clang++ ld.lld llvm-ar llvm-windres llvm-dlltool llvm-strip llvm-objcopy; do
-          if [ ! -x "$llvm_root/bin/$tool" ]; then
-            echo "LLVM archive is missing bin/$tool" >&2
-            exit 1
-          fi
+        if ! "$llvm_root/bin/clang" --print-targets | grep -qi loongarch; then
+          echo "LLVM archive clang does not include the LoongArch target" >&2
+          exit 1
         done
-        cp -a "$llvm_root/." "$HOME/.local/opt/rosbe/llvm/"
+        "$llvm_root/bin/clang" --version
+        echo "LIBERNT_LOONGARCH_LLVM_ROOT=$llvm_root" >> "$GITHUB_ENV"
 
     - name: Restore ccache
       id: ccache_restore
@@ -126,6 +125,7 @@ jobs:
         FLAGS=""
         [ "${{matrix.compiler}}" = "clang" ] && FLAGS="$FLAGS --clang"
         [ "${{matrix.compiler}}" = "gcc" ] && FLAGS="$FLAGS --gcc"
+        [ "${{matrix.arch}}" = "loongarch64" ] && FLAGS="$FLAGS -DREACTOS_CLANG_LLVM_MINGW_ROOT:PATH=$LIBERNT_LOONGARCH_LLVM_ROOT"
         [ "${{matrix.config}}" = "Release" ] && FLAGS="$FLAGS -r"
         [ -n "${{matrix.profile}}" ] && FLAGS="$FLAGS -DROSCONFIG_PROFILE=${{matrix.profile}}"
         [ "${{matrix.compiler}}" = "clang" ] && case "${{matrix.arch}}" in amd64|arm64) FLAGS="$FLAGS -DENABLE_MESA_LLVMPIPE=ON" ;; esac
