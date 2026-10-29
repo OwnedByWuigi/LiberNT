@@ -98,7 +98,7 @@ jobs:
         if ! "$llvm_root/bin/clang" --print-targets | grep -qi loongarch; then
           echo "LLVM archive clang does not include the LoongArch target" >&2
           exit 1
-        done
+        fi
         "$llvm_root/bin/clang" --version
         echo "LIBERNT_LOONGARCH_LLVM_ROOT=$llvm_root" >> "$GITHUB_ENV"
 
