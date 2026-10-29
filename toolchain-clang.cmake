@@ -78,11 +78,7 @@ else()
     message(FATAL_ERROR "Unsupported ARCH: ${ARCH}")
 endif()
 
-if(ARCH STREQUAL "loongarch64")
-    set(triplet loongarch64-unknown-uefi)
-else()
-    set(triplet ${CMAKE_SYSTEM_PROCESSOR}-w64-mingw32)
-endif()
+set(triplet ${CMAKE_SYSTEM_PROCESSOR}-w64-mingw32)
 
 if(NOT DEFINED REACTOS_CLANG_LLVM_MINGW_ROOT OR NOT REACTOS_CLANG_LLVM_MINGW_ROOT)
     _detect_llvm_mingw_root(_llvm_mingw_root)
